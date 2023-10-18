@@ -1,9 +1,18 @@
-import sys
-#from dataclasses import dataclass
-import json
+import json, sys, typing
+from dataclasses import dataclass
+from collections import defaultdict
 
 import dearpygui.dearpygui as dpg
 from dt_ainb.ainb import AINB
+
+
+@dataclass
+class DeferredNodeLinkCall:
+    src_attr: str
+    dst_attr: str
+    src_node_i: int
+    dst_node_i: int
+    parent: typing.Union[int, str]
 
 
 #@dataclass
@@ -30,6 +39,7 @@ from dt_ainb.ainb import AINB
 
 def add_ainb_nodes(ainb: AINB, node_editor):
     aj = ainb.output_dict  # ainb json. we call him aj
+    ainb_tag_ns = f"{node_editor}/ainb0"
 
     # nodemetas = []  # accumulate which nodes are roots/commands/???
     # for command in aj.get("Commands", []):
@@ -45,8 +55,6 @@ def add_ainb_nodes(ainb: AINB, node_editor):
 
     # We can't link nodes that don't exist yet
     deferred_link_calls = []
-    def accumulate_add_node_link(*args, **kwargs):
-        deferred_link_calls.append((args, kwargs))
 
     # assume: `Node Index` always indexes into a sorted nonsparse `Nodes`
     aj_nodes = aj.get("Nodes", [])
@@ -82,7 +90,6 @@ def add_ainb_nodes(ainb: AINB, node_editor):
         #     optional /stdlink{int}: Map<int, dpg.node_attribute>, Standard Link
         #     optional /reslink{int}: Map<int, dpg.node_attribute>, Resident Update Link
 
-        ainb_tag_ns = f"{node_editor}/ainb0"
         node_tag_ns = f"{ainb_tag_ns}/node{node_i}"
         with dpg.node(tag=f"{node_tag_ns}/Node", label=label, parent=node_editor) as node_tag:
             with dpg.node_attribute(tag=f"{node_tag_ns}/LinkTarget", attribute_type=dpg.mvNode_Attr_Input):
@@ -142,11 +149,20 @@ def add_ainb_nodes(ainb: AINB, node_editor):
                     input_link_node = aj_param.get("Node Index", -1)
                     input_link_param = aj_param.get("Parameter Index", -1)
                     if input_link_node != -1 and input_link_param != -1:
-                        # dest_attr_tag = f"{ainb_tag_ns}/node{dest_i}/Params/Input"
+                        # dst_attr_tag = f"{ainb_tag_ns}/node{dst_i}/Params/Input"
                         param_name = aj_nodes[input_link_node]["Output Parameters"][aj_type][input_link_param]["Name"]
-                        dest_attr_tag = f"{ainb_tag_ns}/node{input_link_node}/Params/{param_name}"
-                        my_attr_tag = f"{node_tag_ns}/Params/{k}"
-                        accumulate_add_node_link(param_attr_tag, dest_attr_tag, parent=node_editor)
+                        dst_attr_tag = f"{ainb_tag_ns}/node{input_link_node}/Params/{param_name}"
+
+                        if "Is Precondition Node" in aj_nodes[input_link_node].get("Flags", []):
+                            pass
+
+                        deferred_link_calls.append(DeferredNodeLinkCall(
+                            src_attr=param_attr_tag,
+                            dst_attr=dst_attr_tag,
+                            src_node_i=node_i,
+                            dst_node_i=input_link_node,
+                            parent=node_editor
+                        ))
 
 
                     ui_k = f"&{k}: {aj_type}"
@@ -184,21 +200,27 @@ def add_ainb_nodes(ainb: AINB, node_editor):
                 for i_of_type, aj_link in enumerate(aj_links):
                     #print(aj_link_type, aj_link)
                     if aj_link_type == "Output/bool Input/float Input Link": # 0
-                        dest_i = aj_link["Node Index"]
+                        dst_i = aj_link["Node Index"]
                         link_param = aj_link["Parameter"]
-                        dest_attr_tag = f"{ainb_tag_ns}/node{dest_i}/Params/Input"
+                        dst_attr_tag = f"{ainb_tag_ns}/node{dst_i}/Params/Input"
                         my_attr_tag = f"{node_tag_ns}/Params/{link_param}"
                         #import pdb; pdb.set_trace()
                         # probably not right lol
-                        if not "Is Precondition Node" in aj_nodes[dest_i]["Flags"]:
-                            accumulate_add_node_link(my_attr_tag, dest_attr_tag, parent=node_editor)
+                        if not "Is Precondition Node" in aj_nodes[dst_i].get("Flags", []):
+                            deferred_link_calls.append(DeferredNodeLinkCall(
+                                src_attr=my_attr_tag,
+                                dst_attr=dst_attr_tag,
+                                src_node_i=node_i,
+                                dst_node_i=dst_i,
+                                parent=node_editor
+                            ))
 
                     elif aj_link_type == "Standard Link": # 2
                         # refs to entire nodes for stuff like simultaneous, selectors.
                         # make new node attributes to support links to children.
-                        dest_i = aj_link["Node Index"]
+                        dst_i = aj_link["Node Index"]
                         my_attr_tag = f"{node_tag_ns}/stdlink{i_of_type}"
-                        dest_attr_tag = f"{ainb_tag_ns}/node{dest_i}/LinkTarget"
+                        dst_attr_tag = f"{ainb_tag_ns}/node{dst_i}/LinkTarget"
 
                         with dpg.node_attribute(tag=my_attr_tag, attribute_type=dpg.mvNode_Attr_Output):
                             labels = []
@@ -209,27 +231,33 @@ def add_ainb_nodes(ainb: AINB, node_editor):
                             label = ", ".join(labels) or f"[{aj_link_type}]"
                             dpg.add_text(label)
 
-                        accumulate_add_node_link(my_attr_tag, dest_attr_tag, parent=node_editor)
+                        deferred_link_calls.append(DeferredNodeLinkCall(
+                            src_attr=my_attr_tag,
+                            dst_attr=dst_attr_tag,
+                            src_node_i=node_i,
+                            dst_node_i=dst_i,
+                            parent=node_editor
+                        ))
 
                     elif aj_link_type == "Resident Update Link": # 3
                         # pointers to params owned by other nodes? idk
                         # pulling in references to other nodes? idk
-                        dest_i = aj_link["Node Index"]
+                        dst_i = aj_link["Node Index"]
                         my_attr_tag = f"{node_tag_ns}/reslink{i_of_type}"
 
                         print(aj_link)
 
-                        dest_attr_tag = f"{ainb_tag_ns}/node{dest_i}/LinkTarget" # TODO learn some things
-                        # if dest_param_name := aj_link["Update Info"].get("String"):
-                        #     # dest_attr_tag = f"{ainb_tag_ns}/node{dest_i}/Params/{dest_param_name}"
+                        dst_attr_tag = f"{ainb_tag_ns}/node{dst_i}/LinkTarget" # TODO learn some things
+                        # if dst_param_name := aj_link["Update Info"].get("String"):
+                        #     # dst_attr_tag = f"{ainb_tag_ns}/node{dst_i}/Params/{dst_param_name}"
                         #     # I don't understand how this String works, just point to the node for now.
-                        #     dest_attr_tag = f"{ainb_tag_ns}/node{dest_i}/LinkTarget"
+                        #     dst_attr_tag = f"{ainb_tag_ns}/node{dst_i}/LinkTarget"
                         # else:
                         #     # Pointing into things like Element_Sequential or UDT @Is External AINB
                         #     # seem to not specify a String, so we'll just point at the node itself until
                         #     # this default/lhs/internal/??? param is better understood.
                         #     # The ResUpdate flags usually include "Is Valid Update" when this happens.
-                        #     dest_attr_tag = f"{ainb_tag_ns}/node{dest_i}/LinkTarget"
+                        #     dst_attr_tag = f"{ainb_tag_ns}/node{dst_i}/LinkTarget"
 
                         with dpg.node_attribute(tag=my_attr_tag, attribute_type=dpg.mvNode_Attr_Output):
                             flags = aj_link["Update Info"]["Flags"]
@@ -237,7 +265,13 @@ def add_ainb_nodes(ainb: AINB, node_editor):
                             label = f"[ResUpdate] ({flags})" if flags else "[ResUpdate]"
                             dpg.add_text(label)
 
-                        accumulate_add_node_link(my_attr_tag, dest_attr_tag, parent=node_editor)
+                        deferred_link_calls.append(DeferredNodeLinkCall(
+                            src_attr=my_attr_tag,
+                            dst_attr=dst_attr_tag,
+                            src_node_i=node_i,
+                            dst_node_i=dst_i,
+                            parent=node_editor
+                        ))
 
                     elif aj_link_type == "String Input Link": # 4
                         pass
@@ -252,14 +286,46 @@ def add_ainb_nodes(ainb: AINB, node_editor):
 
 
     # All nodes+attributes exist, now we can link them
-    for (link_args, link_kwargs) in deferred_link_calls:
-        # TODO: - store link calls differently or just parse them here, so we can get at node ids.
-        #       - x axis: bucket nodes by max link depth, try 1000px*depth pos on x axis?
-        #       - y axis: rough sort nodes within each depth-bucket for decent proximity+aesthetics.
-        #                 also try to add gaps between shallower nodes to make room for deeper nodes.
-        #                 we can count node attributes to estimate height if it's unavailable?
-        print(link_args, link_kwargs)
-        dpg.add_node_link(*link_args, **link_kwargs)
+    node_max_depth_map = defaultdict(int)  # commands start at 0
+    node_i_links = defaultdict(set)
+
+    # Add links
+    for link in deferred_link_calls:
+        dpg.add_node_link(link.src_attr, link.dst_attr, parent=link.parent)
+        node_i_links[link.src_node_i].add(link.dst_node_i)
+
+    # Determine each node's depth = x coord
+    for command_i, command in enumerate(aj.get("Commands", [])):
+        node_i = command["Left Node Index"]
+        if node_i == -1:
+            continue
+
+        def walk_for_depth_map(node_i, walk_depth):
+            cur_max_depth = node_max_depth_map[node_i]
+            if walk_depth > cur_max_depth:
+                node_max_depth_map[node_i] = walk_depth
+            for edge_i in node_i_links[node_i]:
+                if node_i not in node_i_links[edge_i]:
+                    walk_for_depth_map(edge_i, walk_depth+1)
+                else:
+                    # don't attempt to count depth inside cycles,
+                    # but inherit its depth if we've already seen it deeper than this walk.
+                    edge_max_depth = node_max_depth_map[edge_i]
+                    if edge_max_depth > node_max_depth_map[node_i]:
+                        node_max_depth_map[node_i] = edge_max_depth
+                    else:
+                        node_max_depth_map[edge_i] = node_max_depth_map[node_i]
+        walk_for_depth_map(node_i, 0)
+
+    # Layout
+    node_y_at_depth = defaultdict(int)
+    for node_i, max_depth in node_max_depth_map.items():
+        node_tag = f"{ainb_tag_ns}/node{node_i}/Node"
+        node_y_at_depth[max_depth] += 1
+        y = 500*node_y_at_depth[max_depth]
+        pos = [800*max_depth, y]
+        # print(node_tag, pos)
+        dpg.set_item_pos(node_tag, pos)
 
 
 def open_ainb_window(s, a, filename):
