@@ -49,7 +49,8 @@ def add_ainb_nodes(ainb: AINB, node_editor):
         deferred_link_calls.append((args, kwargs))
 
     # assume: `Node Index` always indexes into a sorted nonsparse `Nodes`
-    for aj_node in aj.get("Nodes", []):
+    aj_nodes = aj.get("Nodes", [])
+    for aj_node in aj_nodes:
         node_i = aj_node["Node Index"]
         node_type = aj_node["Node Type"]
         node_name = aj_node["Name"]
@@ -70,11 +71,31 @@ def add_ainb_nodes(ainb: AINB, node_editor):
         # https://github.com/Nelarius/imnodes#known-issues
         #
         # Also all node contents must be in an attribute, which can make things weird
+        #
+        # ainb tag tree:
+        #     /node{int}: Map<int, node_tag_ns>, a namespace for each node
+        #
+        # Each node tag tree/ns contains:
+        #     /Node: dpg.node
+        #     /LinkTarget: dpg.node_attribute, used by flow control nodes to reference nodes they operate on
+        #     /Params/{str}: Map<str, dpg.node_attribute>, namespace for all parameters
+        #     optional /stdlink{int}: Map<int, dpg.node_attribute>, Standard Link
+        #     optional /reslink{int}: Map<int, dpg.node_attribute>, Resident Update Link
 
-        with dpg.node(label=label, parent=node_editor):
-            attr_tag = f"{node_editor}/ainb0/node{node_i}"
-            with dpg.node_attribute(tag=attr_tag, attribute_type=dpg.mvNode_Attr_Input):
-                for command in aj.get("Commands", []):
+        ainb_tag_ns = f"{node_editor}/ainb0"
+        node_tag_ns = f"{ainb_tag_ns}/node{node_i}"
+        with dpg.node(tag=f"{node_tag_ns}/Node", label=label, parent=node_editor) as node_tag:
+            with dpg.node_attribute(tag=f"{node_tag_ns}/LinkTarget", attribute_type=dpg.mvNode_Attr_Input):
+
+                def scoot(sender, app_data, node_tag):
+                    print("scoot", sender, app_data, node_tag)
+                    pos = dpg.get_item_pos(node_tag)
+                    pos[0] += 1000  # grid of 1000 seems ok?
+                    # less would be nice but need to wrap/format flags+filename, they wide
+                    dpg.set_item_pos(node_tag, pos)
+                # dpg.add_button(label="hi", callback=scoot, user_data=node_tag)
+
+                for command_i, command in enumerate(aj.get("Commands", [])):
                     if node_i == command["Left Node Index"]:
                         cmd_name = command["Name"]
                         dpg.add_text(f"@Command({cmd_name})")
@@ -87,10 +108,9 @@ def add_ainb_nodes(ainb: AINB, node_editor):
                     v = aj_param.get("Value")
                     # assume: param names of different input/output/etc types must still be unique
                     #attr_tag = f"{node_editor}/ainb0/node{node_i}/immediate/{aj_type}/{k}"
-                    attr_tag = f"{node_editor}/ainb0/node{node_i}/{k}"
                     ui_k = f"#{k}: {aj_type}"
 
-                    with dpg.node_attribute(tag=attr_tag, attribute_type=dpg.mvNode_Attr_Static):
+                    with dpg.node_attribute(tag=f"{node_tag_ns}/Params/{k}", attribute_type=dpg.mvNode_Attr_Static):
                         if aj_type == "int":
                             dpg.add_input_int(label=ui_k, width=80, default_value=v)
                         elif aj_type == "bool":
@@ -112,13 +132,26 @@ def add_ainb_nodes(ainb: AINB, node_editor):
                 for aj_param in aj_params:
                     k = str(aj_param.get("Name"))
                     v = aj_param.get("Value")
+                    param_attr_tag = f"{node_tag_ns}/Params/{k}"
+                    # TODO Global/EXB Index, Flags
                     # TODO node links: Node Index, Parameter Index
                     # or are these always the same as "Linked Nodes" "Output/bool Input/float Input Link"?
-                    # TODO Global/EXB Index, Flags
-                    attr_tag = f"{node_editor}/ainb0/node{node_i}/{k}"
+                    # when these point into precondition nodes, we don't always get the ^ link, so we need this?
+                    # not choosing rn, so we get multiple links sometimes
+
+                    input_link_node = aj_param.get("Node Index", -1)
+                    input_link_param = aj_param.get("Parameter Index", -1)
+                    if input_link_node != -1 and input_link_param != -1:
+                        # dest_attr_tag = f"{ainb_tag_ns}/node{dest_i}/Params/Input"
+                        param_name = aj_nodes[input_link_node]["Output Parameters"][aj_type][input_link_param]["Name"]
+                        dest_attr_tag = f"{ainb_tag_ns}/node{input_link_node}/Params/{param_name}"
+                        my_attr_tag = f"{node_tag_ns}/Params/{k}"
+                        accumulate_add_node_link(param_attr_tag, dest_attr_tag, parent=node_editor)
+
+
                     ui_k = f"&{k}: {aj_type}"
 
-                    with dpg.node_attribute(tag=attr_tag, attribute_type=dpg.mvNode_Attr_Input):
+                    with dpg.node_attribute(tag=param_attr_tag, attribute_type=dpg.mvNode_Attr_Input):
                         if aj_type == "int":
                             dpg.add_input_int(label=ui_k, width=80, default_value=v)
                         elif aj_type == "bool":
@@ -140,10 +173,9 @@ def add_ainb_nodes(ainb: AINB, node_editor):
                 for aj_param in aj_params:
                     k = str(aj_param.get("Name"))
                     # TODO Set Pointer Flag Bit Zero, maybe more
-                    attr_tag = f"{node_editor}/ainb0/node{node_i}/{k}"
                     ui_k = f"*{k}: {aj_type}"
 
-                    with dpg.node_attribute(tag=attr_tag, attribute_type=dpg.mvNode_Attr_Output):
+                    with dpg.node_attribute(tag=f"{node_tag_ns}/Params/{k}", attribute_type=dpg.mvNode_Attr_Output):
                         # not much to show unless we're planning to execute the graph?
                         dpg.add_text(ui_k)
 
@@ -154,19 +186,19 @@ def add_ainb_nodes(ainb: AINB, node_editor):
                     if aj_link_type == "Output/bool Input/float Input Link": # 0
                         dest_i = aj_link["Node Index"]
                         link_param = aj_link["Parameter"]
-                        dest_attr_tag = f"{node_editor}/ainb0/node{dest_i}/Input"
-                        my_attr_tag = f"{node_editor}/ainb0/node{node_i}/{link_param}"
-
-                        # XXX: ui seems to prefer attr<->attr link pairs to be unique, and directional.
-                        # the need might arise to aggregate bidirectional/etc links or hack imnodes.
-                        accumulate_add_node_link(my_attr_tag, dest_attr_tag, parent=node_editor)
+                        dest_attr_tag = f"{ainb_tag_ns}/node{dest_i}/Params/Input"
+                        my_attr_tag = f"{node_tag_ns}/Params/{link_param}"
+                        #import pdb; pdb.set_trace()
+                        # probably not right lol
+                        if not "Is Precondition Node" in aj_nodes[dest_i]["Flags"]:
+                            accumulate_add_node_link(my_attr_tag, dest_attr_tag, parent=node_editor)
 
                     elif aj_link_type == "Standard Link": # 2
                         # refs to entire nodes for stuff like simultaneous, selectors.
                         # make new node attributes to support links to children.
                         dest_i = aj_link["Node Index"]
-                        my_attr_tag = f"{node_editor}/ainb0/node{node_i}/stdlink{i_of_type}"
-                        dest_attr_tag = f"{node_editor}/ainb0/node{dest_i}"
+                        my_attr_tag = f"{node_tag_ns}/stdlink{i_of_type}"
+                        dest_attr_tag = f"{ainb_tag_ns}/node{dest_i}/LinkTarget"
 
                         with dpg.node_attribute(tag=my_attr_tag, attribute_type=dpg.mvNode_Attr_Output):
                             labels = []
@@ -178,8 +210,35 @@ def add_ainb_nodes(ainb: AINB, node_editor):
                             dpg.add_text(label)
 
                         accumulate_add_node_link(my_attr_tag, dest_attr_tag, parent=node_editor)
+
                     elif aj_link_type == "Resident Update Link": # 3
-                        pass
+                        # pointers to params owned by other nodes? idk
+                        # pulling in references to other nodes? idk
+                        dest_i = aj_link["Node Index"]
+                        my_attr_tag = f"{node_tag_ns}/reslink{i_of_type}"
+
+                        print(aj_link)
+
+                        dest_attr_tag = f"{ainb_tag_ns}/node{dest_i}/LinkTarget" # TODO learn some things
+                        # if dest_param_name := aj_link["Update Info"].get("String"):
+                        #     # dest_attr_tag = f"{ainb_tag_ns}/node{dest_i}/Params/{dest_param_name}"
+                        #     # I don't understand how this String works, just point to the node for now.
+                        #     dest_attr_tag = f"{ainb_tag_ns}/node{dest_i}/LinkTarget"
+                        # else:
+                        #     # Pointing into things like Element_Sequential or UDT @Is External AINB
+                        #     # seem to not specify a String, so we'll just point at the node itself until
+                        #     # this default/lhs/internal/??? param is better understood.
+                        #     # The ResUpdate flags usually include "Is Valid Update" when this happens.
+                        #     dest_attr_tag = f"{ainb_tag_ns}/node{dest_i}/LinkTarget"
+
+                        with dpg.node_attribute(tag=my_attr_tag, attribute_type=dpg.mvNode_Attr_Output):
+                            flags = aj_link["Update Info"]["Flags"]
+                            flags = "|".join((" ".join(flags)).split())  # bad ainb parse?
+                            label = f"[ResUpdate] ({flags})" if flags else "[ResUpdate]"
+                            dpg.add_text(label)
+
+                        accumulate_add_node_link(my_attr_tag, dest_attr_tag, parent=node_editor)
+
                     elif aj_link_type == "String Input Link": # 4
                         pass
                     elif aj_link_type == "int Input Link": # 5
@@ -194,13 +253,18 @@ def add_ainb_nodes(ainb: AINB, node_editor):
 
     # All nodes+attributes exist, now we can link them
     for (link_args, link_kwargs) in deferred_link_calls:
-        #print(link_args, link_kwargs)
+        # TODO: - store link calls differently or just parse them here, so we can get at node ids.
+        #       - x axis: bucket nodes by max link depth, try 1000px*depth pos on x axis?
+        #       - y axis: rough sort nodes within each depth-bucket for decent proximity+aesthetics.
+        #                 also try to add gaps between shallower nodes to make room for deeper nodes.
+        #                 we can count node attributes to estimate height if it's unavailable?
+        print(link_args, link_kwargs)
         dpg.add_node_link(*link_args, **link_kwargs)
 
 
 def open_ainb_window(s, a, filename):
     ainb = AINB(open(filename, "rb").read())
-    with dpg.window(label=filename, width=1000, height=600) as ainbwindow:
+    with dpg.window() as ainbwindow:
         def dump_json():
             print(json.dumps(ainb.output_dict, indent=4))
         def link_callback(sender, app_data):
@@ -210,7 +274,7 @@ def open_ainb_window(s, a, filename):
 
         dpg.add_text(filename)
         dpg.add_button(label="print state", callback=dump_json)
-        node_editor = dpg.add_node_editor(callback=link_callback, delink_callback=delink_callback)
+        node_editor = dpg.add_node_editor(callback=link_callback, delink_callback=delink_callback, minimap=True, minimap_location=dpg.mvNodeMiniMap_Location_BottomRight)
         add_ainb_nodes(ainb, node_editor)
 
     return ainbwindow
