@@ -14,8 +14,13 @@ import zstandard as zstd
 
 ROMFS_PATH = "romfs"
 ZSDIC_FILENAME = f"{ROMFS_PATH}/Pack/ZsDic.pack.zs"
-#pack_cache_folder = "var/pack"
-#ainb_index_folder = "var/ainb"
+AINB_FILE_INDEX_FILE = "var/cache/ainb_file_index.json"
+
+
+@dataclass
+class AinbIndexCacheEntry:  # Basic info for each ainb file
+    ainbfile: str # *.ainb, relative to romfs or pack root
+    packfile: Optional[str] = None  # romfs relative .pack.zs containing ainbfile
 
 
 def load_pack_zs_contents(filename: str, zstd_options: Dict) -> Dict[str, memoryview]:
@@ -47,7 +52,7 @@ def open_ainb_index_window():
 
         def callback_open_ainb(s, a, u):
             textitem = a[1]
-            ainb_location = dpg.get_item_user_data(textitem)
+            ainb_location: AinbIndexCacheEntry = dpg.get_item_user_data(textitem)
             open_ainb_window(s, None, ainb_location)
 
         with dpg.item_handler_registry(tag="ainb_index_window_handler") as open_ainb_handler:
@@ -56,33 +61,58 @@ def open_ainb_index_window():
         # filtering, optional abc group trees, etc would be nice
         with dpg.tree_node(label="AI"):
             for ainbfile in pathlib.Path(f"{ROMFS_PATH}/AI").rglob("*.ainb"):
-                item = dpg.add_text(ainbfile.name, user_data=[None, ainbfile])
-                dpg.bind_item_handler_registry(item, open_ainb_handler)
-        with dpg.tree_node(label="Logic"):
-            for ainbfile in pathlib.Path(f"{ROMFS_PATH}/Logic").rglob("*.ainb"):
-                item = dpg.add_text(ainbfile.name, user_data=[None, ainbfile])
-                dpg.bind_item_handler_registry(item, open_ainb_handler)
-        with dpg.tree_node(label="Sequence"):
-            for ainbfile in pathlib.Path(f"{ROMFS_PATH}/Sequence").rglob("*.ainb"):
-                item = dpg.add_text(ainbfile.name, user_data=[None, ainbfile])
+                ainb_location = AinbIndexCacheEntry(str(ainbfile))
+                item = dpg.add_text(ainbfile.name, user_data=ainb_location)
                 dpg.bind_item_handler_registry(item, open_ainb_handler)
 
+        with dpg.tree_node(label="Logic"):
+            for ainbfile in pathlib.Path(f"{ROMFS_PATH}/Logic").rglob("*.ainb"):
+                ainb_location = AinbIndexCacheEntry(str(ainbfile))
+                item = dpg.add_text(ainbfile.name, user_data=ainb_location)
+                dpg.bind_item_handler_registry(item, open_ainb_handler)
+
+        with dpg.tree_node(label="Sequence"):
+            for ainbfile in pathlib.Path(f"{ROMFS_PATH}/Sequence").rglob("*.ainb"):
+                ainb_location = AinbIndexCacheEntry(str(ainbfile))
+                item = dpg.add_text(ainbfile.name, user_data=ainb_location)
+                dpg.bind_item_handler_registry(item, open_ainb_handler)
+
+
+        ainb_cache = {"Pack": {}} # cache format: {"Pack": {AinbIndexCacheEntry.packfile: List[AinbIndexCacheEntry]}}
         should_walk_packs = True
+        try:
+            ainb_cache = json.load(open(AINB_FILE_INDEX_FILE, "r"))
+            if "Pack" not in ainb_cache:
+                ainb_cache["Pack"] = {}
+            for packfile, json_entries in ainb_cache["Pack"].items():
+                # Rewrite in-place with dataclasses
+                ainb_cache["Pack"][packfile] = [AinbIndexCacheEntry(**kw) for kw in json_entries]
+        except FileNotFoundError:
+            pass
+
+        pack_hit = 0
+        pack_total = 0
         if should_walk_packs:
             with dpg.tree_node(label="Pack/Actor/*.pack.zs"):
                 dctx = zstd.ZstdDecompressor(**pack_zstd_options)
-
                 print("Finding Pack/Actor/* AINBs: ", end='', flush=True)
                 log_feedback_letter = ''
 
                 for packfile in sorted(pathlib.Path(f"{ROMFS_PATH}/Pack/Actor").rglob("*.pack.zs")):
-                    archive = SARC(dctx.decompress(open(packfile, "rb").read()))
-                    ainbfiles = [f for f in archive.list_files() if f.endswith(".ainb")]
-                    ainbcount = len(ainbfiles)
+                    cached_ainb_locations = ainb_cache["Pack"].get(str(packfile), None)  # no [] default = negative cache
+                    if cached_ainb_locations is None:
+                        archive = SARC(dctx.decompress(open(packfile, "rb").read()))
+                        ainbfiles = [f for f in archive.list_files() if f.endswith(".ainb")]
+                        cached_ainb_locations = ainb_cache["Pack"][str(packfile)] = [AinbIndexCacheEntry(f, packfile=str(packfile)) for f in ainbfiles]
+                    else:
+                        pack_hit += 1
+                    pack_total += 1
+
+                    ainbcount = len(cached_ainb_locations)
                     if ainbcount == 0:
                         continue
 
-                    packname = packfile.name.rsplit(".pack.zs", 1)[0]
+                    packname = pathlib.Path(packfile).name.rsplit(".pack.zs", 1)[0]
                     label = f"{packname} [{ainbcount}]"
 
                     if log_feedback_letter != packname[0]:
@@ -90,10 +120,14 @@ def open_ainb_index_window():
                         print(log_feedback_letter, end='', flush=True)
 
                     with dpg.tree_node(label=label, default_open=(ainbcount <= 4)):
-                        for ainbfile in ainbfiles:
-                            item = dpg.add_text(ainbfile, user_data=[packfile, ainbfile])
+                        for ainb_location in cached_ainb_locations:
+                            item = dpg.add_text(ainb_location.ainbfile, user_data=ainb_location)
                             dpg.bind_item_handler_registry(item, open_ainb_handler)
 
+                print(f" ...saving to cache ({pack_hit}/{pack_total} hit)", end='')
+                out = json.dumps(ainb_cache, default=vars, indent=4)
+                with open(AINB_FILE_INDEX_FILE, "w") as outfile:
+                    outfile.write(out)
                 print("", flush=True) # \n
 
     return ainb_index_window
@@ -421,21 +455,19 @@ def add_ainb_nodes(ainb: AINB, node_editor):
         dpg.set_item_pos(node_tag, pos)
 
 
-def open_ainb_window(s, a, ainb_location):
-    # TODO dataclass or something for ainb_location+naming
-    [packfile, filename] = ainb_location
-    if packfile is None:
-        ainb = AINB(open(filename, "rb").read())
-        window_label = filename.name
+def open_ainb_window(s, a, ainb_location: AinbIndexCacheEntry):
+    if ainb_location.packfile is None:
+        ainb = AINB(open(ainb_location.ainbfile, "rb").read())
+        window_label = pathlib.Path(ainb_location.ainbfile).name
     else:
         # XXX maybe don't copypaste me, also better ctx mgmt
         zsdics = { fn: zstd.ZstdCompressionDict(data) for fn, data in load_pack_zs_contents(ZSDIC_FILENAME, {}).items() }
         pack_zstd_options = { "dict_data": zsdics["pack.zsdic"], }
         dctx = zstd.ZstdDecompressor(**pack_zstd_options)
-        archive = SARC(dctx.decompress(open(packfile, "rb").read()))
-        packname = packfile.name.rsplit(".pack.zs", 1)[0]
-        ainb = AINB(archive.get_file_data(filename))
-        window_label = f"Pack/Actor/{packname}/{filename}"
+        archive = SARC(dctx.decompress(open(ainb_location.packfile, "rb").read()))
+        packname = pathlib.Path(ainb_location.packfile).name.rsplit(".pack.zs", 1)[0]
+        ainb = AINB(archive.get_file_data(ainb_location.ainbfile))
+        window_label = f"Pack/Actor/{packname}/{ainb_location.ainbfile}"
 
     with dpg.window(label=window_label, width=800, height=600, pos=[600, 200]) as ainbwindow:
         def dump_json():
@@ -464,7 +496,7 @@ def main():
     EXAMPLE_AINBFILE = "romfs/Sequence/ShortCutPauseOn.module.ainb"
     use_ainbfile = sys.argv[-1] if str(sys.argv[-1]).endswith(".ainb") else None
     if use_ainbfile:
-        open_ainb_window(None, None, [None, pathlib.Path(use_ainbfile)])
+        open_ainb_window(None, None, AinbIndexCacheEntry(use_ainbfile))
 
     ainb_index_window = open_ainb_index_window()
 
