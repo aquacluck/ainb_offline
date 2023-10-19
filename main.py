@@ -1,9 +1,102 @@
-import json, sys, typing
+import json
+import os
+import pathlib
+import sys
+from typing import *
 from dataclasses import dataclass
 from collections import defaultdict
 
 import dearpygui.dearpygui as dpg
 from dt_ainb.ainb import AINB
+from sarc import SARC
+import zstandard as zstd
+
+
+ROMFS_PATH = "romfs"
+ZSDIC_FILENAME = f"{ROMFS_PATH}/Pack/ZsDic.pack.zs"
+#pack_cache_folder = "var/pack"
+#ainb_index_folder = "var/ainb"
+
+
+def load_pack_zs_contents(filename: str, zstd_options: Dict) -> Dict[str, memoryview]:
+    dctx = zstd.ZstdDecompressor(**zstd_options)
+    archive = SARC(dctx.decompress(open(filename, "rb").read()))
+    return { fn: archive.get_file_data(fn) for fn in archive.list_files() }
+
+
+def get_pack_zs_filenames(filename: str, zstd_options: Dict) -> List[str]:
+    dctx = zstd.ZstdDecompressor(**zstd_options)
+    archive = SARC(dctx.decompress(open(filename, "rb").read()))
+    return [*archive.list_files()]
+
+
+def open_ainb_index_window():
+    zsdics = { fn: zstd.ZstdCompressionDict(data) for fn, data in load_pack_zs_contents(ZSDIC_FILENAME, {}).items() }
+    pack_zstd_options = { "dict_data": zsdics["pack.zsdic"], }
+
+    # input_filename = f"{ROMFS_PATH}/Pack/Actor/DungeonBoss_Rito_EventStarter.pack.zs"
+    # test_pack_contents = load_pack_zs_contents(input_filename, pack_zstd_options)
+    # dctx = zstd.ZstdDecompressor(**pack_zstd_options)
+    # archive = SARC(dctx.decompress(open(input_filename, "rb").read()))
+    #test_pack_filenames = get_pack_zs_filenames(input_filename, pack_zstd_options)
+    # [str(x) for x in pathlib.Path("romfs/Logic").rglob("*.ainb") ]
+    #ainb = AINB(open(filename, "rb").read())
+
+    # 100% viewport height how?
+    with dpg.window(label="AINB Index", pos=[0, 0], width=300, height=1080, no_close=True, no_collapse=True, no_move=True) as ainb_index_window:
+
+        def callback_open_ainb(s, a, u):
+            textitem = a[1]
+            ainb_location = dpg.get_item_user_data(textitem)
+            open_ainb_window(s, None, ainb_location)
+
+        with dpg.item_handler_registry(tag="ainb_index_window_handler") as open_ainb_handler:
+            dpg.add_item_clicked_handler(callback=callback_open_ainb)
+
+        # filtering, optional abc group trees, etc would be nice
+        with dpg.tree_node(label="AI"):
+            for ainbfile in pathlib.Path(f"{ROMFS_PATH}/AI").rglob("*.ainb"):
+                item = dpg.add_text(ainbfile.name, user_data=[None, ainbfile])
+                dpg.bind_item_handler_registry(item, open_ainb_handler)
+        with dpg.tree_node(label="Logic"):
+            for ainbfile in pathlib.Path(f"{ROMFS_PATH}/Logic").rglob("*.ainb"):
+                item = dpg.add_text(ainbfile.name, user_data=[None, ainbfile])
+                dpg.bind_item_handler_registry(item, open_ainb_handler)
+        with dpg.tree_node(label="Sequence"):
+            for ainbfile in pathlib.Path(f"{ROMFS_PATH}/Sequence").rglob("*.ainb"):
+                item = dpg.add_text(ainbfile.name, user_data=[None, ainbfile])
+                dpg.bind_item_handler_registry(item, open_ainb_handler)
+
+        should_walk_packs = True
+        if should_walk_packs:
+            with dpg.tree_node(label="Pack/Actor/*.pack.zs"):
+                dctx = zstd.ZstdDecompressor(**pack_zstd_options)
+
+                print("Finding Pack/Actor/* AINBs: ", end='', flush=True)
+                log_feedback_letter = ''
+
+                for packfile in sorted(pathlib.Path(f"{ROMFS_PATH}/Pack/Actor").rglob("*.pack.zs")):
+                    archive = SARC(dctx.decompress(open(packfile, "rb").read()))
+                    ainbfiles = [f for f in archive.list_files() if f.endswith(".ainb")]
+                    ainbcount = len(ainbfiles)
+                    if ainbcount == 0:
+                        continue
+
+                    packname = packfile.name.rsplit(".pack.zs", 1)[0]
+                    label = f"{packname} [{ainbcount}]"
+
+                    if log_feedback_letter != packname[0]:
+                        log_feedback_letter = packname[0]
+                        print(log_feedback_letter, end='', flush=True)
+
+                    with dpg.tree_node(label=label, default_open=(ainbcount <= 4)):
+                        for ainbfile in ainbfiles:
+                            item = dpg.add_text(ainbfile, user_data=[packfile, ainbfile])
+                            dpg.bind_item_handler_registry(item, open_ainb_handler)
+
+                print("", flush=True) # \n
+
+    return ainb_index_window
 
 
 @dataclass
@@ -12,7 +105,7 @@ class DeferredNodeLinkCall:
     dst_attr: str
     src_node_i: int
     dst_node_i: int
-    parent: typing.Union[int, str]
+    parent: Union[int, str]
 
 
 #@dataclass
@@ -127,7 +220,7 @@ def add_ainb_nodes(ainb: AINB, node_editor):
                         elif aj_type == "string":
                             dpg.add_input_text(label=ui_k, width=150, default_value=v)
                         elif aj_type == "vec3f":
-                            import pdb; pdb.set_trace()
+                            # import pdb; pdb.set_trace()
                             dpg.add_input_text(label=ui_k, width=300, default_value=v)
                         elif aj_type == "userdefined":
                             dpg.add_input_text(label=ui_k, width=300, default_value=v)
@@ -177,7 +270,7 @@ def add_ainb_nodes(ainb: AINB, node_editor):
                         elif aj_type == "string":
                             dpg.add_input_text(label=ui_k, width=150, default_value=v)
                         elif aj_type == "vec3f":
-                            import pdb; pdb.set_trace()
+                            # import pdb; pdb.set_trace()
                             dpg.add_input_text(label=ui_k, width=300, default_value=v)
                         elif aj_type == "userdefined":
                             dpg.add_input_text(label=ui_k, width=300, default_value=v)
@@ -328,9 +421,23 @@ def add_ainb_nodes(ainb: AINB, node_editor):
         dpg.set_item_pos(node_tag, pos)
 
 
-def open_ainb_window(s, a, filename):
-    ainb = AINB(open(filename, "rb").read())
-    with dpg.window() as ainbwindow:
+def open_ainb_window(s, a, ainb_location):
+    # TODO dataclass or something for ainb_location+naming
+    [packfile, filename] = ainb_location
+    if packfile is None:
+        ainb = AINB(open(filename, "rb").read())
+        window_label = filename.name
+    else:
+        # XXX maybe don't copypaste me, also better ctx mgmt
+        zsdics = { fn: zstd.ZstdCompressionDict(data) for fn, data in load_pack_zs_contents(ZSDIC_FILENAME, {}).items() }
+        pack_zstd_options = { "dict_data": zsdics["pack.zsdic"], }
+        dctx = zstd.ZstdDecompressor(**pack_zstd_options)
+        archive = SARC(dctx.decompress(open(packfile, "rb").read()))
+        packname = packfile.name.rsplit(".pack.zs", 1)[0]
+        ainb = AINB(archive.get_file_data(filename))
+        window_label = f"Pack/Actor/{packname}/{filename}"
+
+    with dpg.window(label=window_label, width=800, height=600, pos=[600, 200]) as ainbwindow:
         def dump_json():
             print(json.dumps(ainb.output_dict, indent=4))
         def link_callback(sender, app_data):
@@ -338,8 +445,7 @@ def open_ainb_window(s, a, filename):
         def delink_callback(sender, app_data):
             dpg.delete_item(app_data)
 
-        dpg.add_text(filename)
-        dpg.add_button(label="print state", callback=dump_json)
+        # dpg.add_button(label="print state", callback=dump_json)
         node_editor = dpg.add_node_editor(callback=link_callback, delink_callback=delink_callback, minimap=True, minimap_location=dpg.mvNodeMiniMap_Location_BottomRight)
         add_ainb_nodes(ainb, node_editor)
 
@@ -350,17 +456,22 @@ def main():
     dpg.create_context()
 
     with dpg.font_registry():
-        default_font = dpg.add_font("static/fonts/SourceCodePro-Regular.otf", 20)
+        default_font = dpg.add_font("static/fonts/SourceCodePro-Regular.otf", 16)
     dpg.bind_font(default_font)
 
+    # TODO: infer romfs root from argv filename?
     # EXAMPLE_AINBFILE = "romfs/Sequence/AutoPlacement.root.ainb"
     EXAMPLE_AINBFILE = "romfs/Sequence/ShortCutPauseOn.module.ainb"
-    use_ainbfile = sys.argv[-1] if str(sys.argv[-1]).endswith(".ainb") else EXAMPLE_AINBFILE
+    use_ainbfile = sys.argv[-1] if str(sys.argv[-1]).endswith(".ainb") else None
+    if use_ainbfile:
+        open_ainb_window(None, None, [None, pathlib.Path(use_ainbfile)])
 
-    print(use_ainbfile)
-    ainbwindow = open_ainb_window(None, None, use_ainbfile)
+    ainb_index_window = open_ainb_index_window()
 
-    dpg.set_primary_window(ainbwindow, True)
+    # import dearpygui.demo as demo
+    # demo.show_demo()
+
+    # dpg.set_primary_window(ainb_index_window, True)
     dpg.create_viewport(title="ainb offline", x_pos=0, y_pos=0, width=1600, height=1080, decorated=True, vsync=True)
     dpg.setup_dearpygui()
     dpg.show_viewport()
