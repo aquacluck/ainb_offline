@@ -26,13 +26,13 @@ class AinbIndexCacheEntry:  # Basic info for each ainb file
 def load_pack_zs_contents(filename: str, zstd_options: Dict) -> Dict[str, memoryview]:
     dctx = zstd.ZstdDecompressor(**zstd_options)
     archive = SARC(dctx.decompress(open(filename, "rb").read()))
-    return { fn: archive.get_file_data(fn) for fn in archive.list_files() }
+    return { fn: archive.get_file_data(fn) for fn in sorted(archive.list_files()) }
 
 
 def get_pack_zs_filenames(filename: str, zstd_options: Dict) -> List[str]:
     dctx = zstd.ZstdDecompressor(**zstd_options)
     archive = SARC(dctx.decompress(open(filename, "rb").read()))
-    return [*archive.list_files()]
+    return sorted(archive.list_files())
 
 
 def open_ainb_index_window():
@@ -93,8 +93,38 @@ def open_ainb_index_window():
         pack_hit = 0
         pack_total = 0
         if should_walk_packs:
+            dctx = zstd.ZstdDecompressor(**pack_zstd_options)
+            with dpg.tree_node(label="Pack/AI.Global.Product.100.pack.zs/AI"):
+                print("Finding Pack/AI.Global.Product.100.pack.zs/AI/* AINBs: ", end='', flush=True)
+                log_feedback_letter = ''
+
+                packfile = f"{ROMFS_PATH}/Pack/AI.Global.Product.100.pack.zs"
+                cached_ainb_locations = ainb_cache["Pack"].get(str(packfile), None)  # no [] default = negative cache
+                if cached_ainb_locations is None:
+                    archive = SARC(dctx.decompress(open(packfile, "rb").read()))
+                    ainbfiles = [f for f in sorted(archive.list_files()) if f.endswith(".ainb")]
+                    cached_ainb_locations = ainb_cache["Pack"][str(packfile)] = [AinbIndexCacheEntry(f, packfile=str(packfile)) for f in ainbfiles]
+                else:
+                    pack_hit += 1
+                pack_total += 1
+
+                ainbcount = len(cached_ainb_locations)
+                # if ainbcount == 0:
+                #     continue
+
+                packname = pathlib.Path(packfile).name.rsplit(".pack.zs", 1)[0]
+
+                if log_feedback_letter != packname[0]:
+                    log_feedback_letter = packname[0]
+                    print(log_feedback_letter, end='', flush=True)
+
+                for ainb_location in cached_ainb_locations:
+                    label = pathlib.Path(ainb_location.ainbfile).name
+                    item = dpg.add_text(label, user_data=ainb_location)
+                    dpg.bind_item_handler_registry(item, open_ainb_handler)
+                print("")  # \n
+
             with dpg.tree_node(label="Pack/Actor/*.pack.zs"):
-                dctx = zstd.ZstdDecompressor(**pack_zstd_options)
                 print("Finding Pack/Actor/* AINBs: ", end='', flush=True)
                 log_feedback_letter = ''
 
@@ -102,7 +132,7 @@ def open_ainb_index_window():
                     cached_ainb_locations = ainb_cache["Pack"].get(str(packfile), None)  # no [] default = negative cache
                     if cached_ainb_locations is None:
                         archive = SARC(dctx.decompress(open(packfile, "rb").read()))
-                        ainbfiles = [f for f in archive.list_files() if f.endswith(".ainb")]
+                        ainbfiles = [f for f in sorted(archive.list_files()) if f.endswith(".ainb")]
                         cached_ainb_locations = ainb_cache["Pack"][str(packfile)] = [AinbIndexCacheEntry(f, packfile=str(packfile)) for f in ainbfiles]
                     else:
                         pack_hit += 1
@@ -124,11 +154,12 @@ def open_ainb_index_window():
                             item = dpg.add_text(ainb_location.ainbfile, user_data=ainb_location)
                             dpg.bind_item_handler_registry(item, open_ainb_handler)
 
-                print(f" ...saving to cache ({pack_hit}/{pack_total} hit)", end='')
+            if pack_hit < pack_total:
+                print(f" ...saving {pack_total-pack_hit} to cache", end='')
                 out = json.dumps(ainb_cache, default=vars, indent=4)
                 with open(AINB_FILE_INDEX_FILE, "w") as outfile:
                     outfile.write(out)
-                print("", flush=True) # \n
+            print(f" ({pack_total} total)", flush=True)
 
     return ainb_index_window
 
@@ -181,7 +212,7 @@ def add_ainb_nodes(ainb: AINB, node_editor):
     #     nodemetas.append(meta)
 
     # We can't link nodes that don't exist yet
-    deferred_link_calls = []
+    deferred_link_calls: List[DeferredNodeLinkCall] = []
 
     # assume: `Node Index` always indexes into a sorted nonsparse `Nodes`
     aj_nodes = aj.get("Nodes", [])
