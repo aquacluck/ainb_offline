@@ -32,15 +32,17 @@ def open_ainb_graph_window(s, a, ainb_location: AinbIndexCacheEntry):
             dpg.add_node_link(app_data[0], app_data[1], parent=sender)
         def delink_callback(sender, app_data):
             dpg.delete_item(app_data)
-
         # dpg.add_button(label="print state", callback=dump_json)
-        node_editor = dpg.add_node_editor(callback=link_callback, delink_callback=delink_callback, minimap=True, minimap_location=dpg.mvNodeMiniMap_Location_BottomRight)
-        add_ainb_nodes(ainb, node_editor)
+
+        # Main graph ui + rendering nodes
+        node_editor = dpg.add_node_editor(callback=link_callback, delink_callback=delink_callback, minimap=True, minimap_location=dpg.mvNodeMiniMap_Location_BottomRight, tracked=True)
+        add_ainb_nodes(ainb, ainb_location, node_editor)
 
     return ainbwindow
 
 
-def add_ainb_nodes(ainb: AINB, node_editor):
+def add_ainb_nodes(ainb: AINB, ainb_location: AinbIndexCacheEntry, node_editor):
+    from app_ainb_cache import scoped_ainbfile_lookup  # circular ImportError time, lol python
     aj = ainb.output_dict  # ainb json. we call him aj
     ainb_tag_ns = f"{node_editor}/ainb0"
 
@@ -96,9 +98,23 @@ def add_ainb_nodes(ainb: AINB, node_editor):
                 for command_i, command in enumerate(aj.get("Commands", [])):
                     if node_i == command["Left Node Index"]:
                         cmd_name = command["Name"]
-                        dpg.add_text(f"@Command({cmd_name})")
+                        dpg.add_text(f"@Command[{cmd_name}]")
                 for aj_flag in aj_node.get("Flags", []):
-                    dpg.add_text(f"@{aj_flag}")
+                    if aj_flag == "Is External AINB":
+                        for aref in aj["Embedded AINB Files"]:
+                            if aref["File Path"] != aj_node["Name"] + ".ainb":
+                                continue
+
+                            #print(aref["Count"]) ...instance/link count? TODO
+
+                            # Try to resolve local pack -> global pack -> global Bare
+                            dest_ainbfile = aref["File Category"] + '/' + aref["File Path"]
+                            dest_location = scoped_ainbfile_lookup(AinbIndexCacheEntry(ainbfile=dest_ainbfile, packfile=ainb_location.packfile))
+                            with dpg.group(horizontal=True):
+                                dpg.add_text(f'@ExternalAINB[{aref["File Category"]}] {aref["File Path"]}')
+                                dpg.add_button(label="Open AINB", user_data=dest_location, callback=open_ainb_graph_window, arrow=True, direction=dpg.mvDir_Right)
+                    else:
+                        dpg.add_text(f"@{aj_flag}")
 
             for aj_type, aj_params in aj_node.get("Immediate Parameters", {}).items():
                 for aj_param in aj_params:
@@ -285,6 +301,15 @@ def add_ainb_nodes(ainb: AINB, node_editor):
         dpg.add_node_link(link.src_attr, link.dst_attr, parent=link.parent)
         node_i_links[link.src_node_i].add(link.dst_node_i)
 
+    # For panning to commands on open
+    NamedCoordDict = Dict[str, Tuple[int, int]]
+    command_named_coords: NamedCoordDict = {}
+
+    # TODO at least centralize some of the layout numbers
+    LAYOUT_X_SPACING = 800
+    LAYOUT_Y_SPACING = 500
+    CORNER_PAD = 10  # Distance from top left corner for root
+
     # Determine each node's depth = x coord
     for command_i, command in enumerate(aj.get("Commands", [])):
         node_i = command["Left Node Index"]
@@ -307,13 +332,26 @@ def add_ainb_nodes(ainb: AINB, node_editor):
                     else:
                         node_max_depth_map[edge_i] = node_max_depth_map[node_i]
         walk_for_depth_map(node_i, 0)
+        command_named_coords[command["Name"]] = (0 * LAYOUT_X_SPACING, command_i * LAYOUT_Y_SPACING)
+
+    # Pan to entry point by subtracting the destination coords, putting them at effectively [0, 0]
+    # cuz i dunno how to scroll the graph editor region itself
+    entry_point_offset = [0, 0]
+    open_to_command = "Root"  # take as input?
+    for cmd_name, cmd_coord in command_named_coords.items():
+        entry_point_offset = cmd_coord  # We'll take anything meaningful, don't assume [0, 0] isn't void space
+        if cmd_name == open_to_command:
+            break  # Exact match
+    entry_point_offset = [entry_point_offset[0] - CORNER_PAD, entry_point_offset[1] - CORNER_PAD]
 
     # Layout
     node_y_at_depth = defaultdict(int)
     for node_i, max_depth in node_max_depth_map.items():
         node_tag = f"{ainb_tag_ns}/node{node_i}/Node"
+        x = LAYOUT_X_SPACING * max_depth - entry_point_offset[0]
+        y = LAYOUT_Y_SPACING * node_y_at_depth[max_depth] - entry_point_offset[1]
         node_y_at_depth[max_depth] += 1
-        y = 500*node_y_at_depth[max_depth]
-        pos = [800*max_depth, y]
+        pos = [x, y]
         # print(node_tag, pos)
         dpg.set_item_pos(node_tag, pos)
+

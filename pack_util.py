@@ -43,3 +43,5 @@ def get_pack_internal_filenames(packname: str) -> List[str]:
     dctx = get_pack_decompression_ctx()
     archive = SARC(dctx.decompress(open(packname, "rb").read()))
     return sorted(archive.list_files())
+
+# TODO natural sort + ignore case, they're too inconsistent

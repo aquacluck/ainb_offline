@@ -49,6 +49,31 @@ def _load_or_new_empty_ainb_index(filename: str) -> Dict:
     return ainb_cache
 
 
+def scoped_ainbfile_lookup(requested_ainb: AinbIndexCacheEntry) -> AinbIndexCacheEntry:
+    # Resolves globals from inside packs, hydrates requested entry from index
+    ainb_cache = get_ainb_index()
+
+    # First look inside the specified pack
+    if requested_ainb.packfile is not None:
+        for pack_ainb in ainb_cache["Pack"][requested_ainb.packfile]:
+            if pack_ainb.ainbfile == requested_ainb.ainbfile:
+                return pack_ainb
+
+    # Then fall back to global pack
+    global_packfile = "Pack/AI.Global.Product.100.pack.zs"
+    for glob_ainb in ainb_cache["Pack"][global_packfile]:
+        # FIXME needs be more efficient, structure to pick globals by name directly, no iterate
+        if glob_ainb.ainbfile == requested_ainb.ainbfile:
+            return glob_ainb
+
+    # Finally fall back to Bare globals. TODO we should really merge all these globals, separation in ui makes sense tho
+    ainbcat, _ = requested_ainb.ainbfile.split('/')  # assume we'll always have a cat folder?
+    entry = ainb_cache["Bare"][ainbcat].get(requested_ainb.ainbfile)
+    if not entry:
+        print(f"Failed scoped_ainbfile_lookup! {requested_ainb}")
+    return entry
+
+
 @functools.lru_cache
 def get_ainb_index() -> Dict:
     romfs = dpg.get_value(AppConfigKeys.ROMFS_PATH)
