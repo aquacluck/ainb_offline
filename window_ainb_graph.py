@@ -11,14 +11,19 @@ from app_types import *
 
 
 def open_ainb_graph_window(s, a, ainb_location: AinbIndexCacheEntry):
-    # TODO: consistent title: [A] [L] [S] typeflag? romfs path? pack+internal path? idk yet
+    romfs = dpg.get_value(AppConfigKeys.ROMFS_PATH)
     if ainb_location.packfile is None:
-        ainb = AINB(open(ainb_location.ainbfile, "rb").read())
-        window_label = pathlib.Path(ainb_location.ainbfile).name
+        print(f"Opening {romfs}/{ainb_location.ainbfile}")
+        ainb = AINB(open(f"{romfs}/{ainb_location.ainbfile}", "rb").read())
+        # TODO verify romfs/pack relative ainb location is always 2 part {category}/{ainbfile} and categories are always accurate
+        category, ainbfile = pathlib.Path(ainb_location.ainbfile).parts
+        window_label = ainb_location.ainbfile
+        window_label = f"[{category}] {ainbfile}"
     else:
-        ainb = AINB(pack_util.load_file_from_pack(ainb_location.packfile, ainb_location.ainbfile))
-        packname = pathlib.Path(ainb_location.packfile).name.rsplit(".pack.zs", 1)[0]
-        window_label = f"Pack/Actor/{packname}/{ainb_location.ainbfile}"
+        print(f"Opening {romfs}/{ainb_location.packfile}:/{ainb_location.ainbfile}")
+        ainb = AINB(pack_util.load_file_from_pack(f"{romfs}/{ainb_location.packfile}", ainb_location.ainbfile))
+        category, ainbfile = pathlib.Path(ainb_location.ainbfile).parts
+        window_label = f"[{category}] {ainbfile} [from {ainb_location.packfile}]"
 
     with dpg.window(label=window_label, width=800, height=600, pos=[600, 200]) as ainbwindow:
         def dump_json():
@@ -231,7 +236,7 @@ def add_ainb_nodes(ainb: AINB, node_editor):
                         dst_i = aj_link["Node Index"]
                         my_attr_tag = f"{node_tag_ns}/reslink{i_of_type}"
 
-                        print(aj_link)
+                        # print(aj_link)
 
                         dst_attr_tag = f"{ainb_tag_ns}/node{dst_i}/LinkTarget" # TODO learn some things
                         # if dst_param_name := aj_link["Update Info"].get("String"):

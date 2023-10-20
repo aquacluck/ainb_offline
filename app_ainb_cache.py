@@ -1,5 +1,6 @@
 import functools
 import json
+import os
 import pathlib
 from typing import *
 
@@ -61,49 +62,51 @@ def get_ainb_index() -> Dict:
     print("Finding toplevel AI, Logic, Sequence AINBs ", end='', flush=True)
     for catdir in ("AI", "Logic", "Sequence"):
         for ainbfile in sorted(pathlib.Path(f"{romfs}/{catdir}").rglob("*.ainb")):
+            romfs_relative: str = os.path.join(*ainbfile.parts[-2:])
             entry_total += 1
-            if ainb_cache["Bare"][catdir].get(str(ainbfile)) is not None:
+            if ainb_cache["Bare"][catdir].get(romfs_relative) is not None:
                 entry_hit += 1
-                continue
             else:
                 # TODO open AINB(ainbfile) and index stuff?
                 # TODO store folder? A/S/L category?
-                ainb_location = AinbIndexCacheEntry(str(ainbfile))
-                ainb_cache["Bare"][catdir][str(ainbfile)] = ainb_location
+                ainb_location = AinbIndexCacheEntry(ainbfile=romfs_relative)
+                ainb_cache["Bare"][catdir][romfs_relative] = ainb_location
     print("")  # \n
 
     # Global pack ainb
-    print("Finding Pack/AI.Global.Product.100.pack.zs/AI/* AINBs ", end='', flush=True)
-    packfile = f"{romfs}/Pack/AI.Global.Product.100.pack.zs"
-    cached_ainb_locations = ainb_cache["Pack"].get(str(packfile), None)  # no [] default = negative cache
+    print("Finding Pack/AI.Global.Product.100 AINBs ", end='', flush=True)
+    packfile = "Pack/AI.Global.Product.100.pack.zs"
+    cached_ainb_locations = ainb_cache["Pack"].get(packfile, None)  # no [] default = negative cache
     if cached_ainb_locations is None:
         # TODO open AINB and index stuff?
-        ainbfiles = [f for f in pack_util.get_pack_internal_filenames(packfile) if f.endswith(".ainb")]
-        cached_ainb_locations = ainb_cache["Pack"][str(packfile)] = [AinbIndexCacheEntry(f, packfile=str(packfile)) for f in ainbfiles]
+        ainbfiles = [f for f in pack_util.get_pack_internal_filenames(f"{romfs}/{packfile}") if f.endswith(".ainb")]
+        cached_ainb_locations = ainb_cache["Pack"][packfile] = [AinbIndexCacheEntry(f, packfile=packfile) for f in ainbfiles]
     else:
         entry_hit += len(cached_ainb_locations)
     entry_total += len(cached_ainb_locations)
     print("")  # \n
 
     # Actor pack ainb
-    print("Finding Pack/Actor/* AINBs: ", end='', flush=True)
+    print("Finding Pack/Actor AINBs: ", end='', flush=True)
     log_feedback_letter = ''
     for packfile in sorted(pathlib.Path(f"{romfs}/Pack/Actor").rglob("*.pack.zs")):
-        cached_ainb_locations = ainb_cache["Pack"].get(str(packfile), None)  # no [] default = negative cache
+        romfs_relative: str = os.path.join(*packfile.parts[-3:])
+        cached_ainb_locations = ainb_cache["Pack"].get(romfs_relative, None)  # no [] default = negative cache
         if cached_ainb_locations is None:
             # TODO open AINB and index stuff?
             ainbfiles = [f for f in pack_util.get_pack_internal_filenames(packfile) if f.endswith(".ainb")]
-            cached_ainb_locations = ainb_cache["Pack"][str(packfile)] = [AinbIndexCacheEntry(f, packfile=str(packfile)) for f in ainbfiles]
+            cached_ainb_locations = ainb_cache["Pack"][romfs_relative] = [AinbIndexCacheEntry(f, packfile=romfs_relative) for f in ainbfiles]
         else:
             entry_hit += len(cached_ainb_locations)
         entry_total += len(cached_ainb_locations)
-        packname = pathlib.Path(packfile).name.rsplit(".pack.zs", 1)[0]
+        packname = pathlib.Path(romfs_relative).name.rsplit(".pack.zs", 1)[0]
         if log_feedback_letter != packname[0]:
             log_feedback_letter = packname[0]
             print(log_feedback_letter, end='', flush=True)
     print("")  # \n
 
     if entry_hit < entry_total:
+        # TODO: zstd this to disk, and replace json with something streamable, 4MB string already here
         print(f"Caching {entry_total-entry_hit} new entries", end='')
         out = json.dumps(ainb_cache, default=vars, indent=4)
         ainb_file_index_file = dpg.get_value(AppConfigKeys.AINB_FILE_INDEX_FILE)
