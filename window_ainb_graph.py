@@ -26,17 +26,47 @@ def open_ainb_graph_window(s, a, ainb_location: AinbIndexCacheEntry):
         window_label = f"[{category}] {ainbfile} [from {ainb_location.packfile}]"
 
     with dpg.window(label=window_label, width=800, height=600, pos=[600, 200]) as ainbwindow:
-        def dump_json():
-            print(json.dumps(ainb.output_dict, indent=4))
-        def link_callback(sender, app_data):
-            dpg.add_node_link(app_data[0], app_data[1], parent=sender)
-        def delink_callback(sender, app_data):
-            dpg.delete_item(app_data)
-        # dpg.add_button(label="print state", callback=dump_json)
+        with dpg.tab_bar():
+            # dpg.add_tab_button(label="[max]", callback=dpg.maximize_viewport)  # works at runtime, fails at init?
+            # dpg.add_tab_button(label="wipe cache")
+            with dpg.tab(label="Node Graph"):
+                with dpg.child_window(autosize_x=True, autosize_y=True):
+                    # sludge for now
+                    def link_callback(sender, app_data):
+                        dpg.add_node_link(app_data[0], app_data[1], parent=sender)
+                    def delink_callback(sender, app_data):
+                        dpg.delete_item(app_data)
 
-        # Main graph ui + rendering nodes
-        node_editor = dpg.add_node_editor(callback=link_callback, delink_callback=delink_callback, minimap=True, minimap_location=dpg.mvNodeMiniMap_Location_BottomRight, tracked=True)
-        add_ainb_nodes(ainb, ainb_location, node_editor)
+                    # Main graph ui + rendering nodes
+                    node_editor = dpg.add_node_editor(
+                        callback=link_callback,
+                        delink_callback=delink_callback,
+                        minimap=True,
+                        minimap_location=dpg.mvNodeMiniMap_Location_BottomRight
+                    )
+                    add_ainb_nodes(ainb, ainb_location, node_editor)
+
+
+            with dpg.tab(label="Parsed JSON"):
+                with dpg.child_window(autosize_x=True, autosize_y=True):
+                    def dump_json():
+                        ainb_json_str = json.dumps(ainb.output_dict, indent=4)
+                        dpg.set_value(json_textbox, ainb_json_str)
+                    with dpg.group(horizontal=True):
+                        dpg.add_button(label="Redump working AINB", callback=dump_json)
+                        # TODO dpg.add_checkbox("Redump when entering this tab", default_value=True)
+                        # TODO node_editor changes don't write back to AINB.output_dict yet
+                        #      dpg.add_button(label="Overwrite AINB") duh
+                        #      dpg.add_button(label="Open JSON in: ", source="jsdfl/opencmd")
+                        #      dpg.add_input_text(default_value='$EDITOR "%s"', tag="jsdfl/opencmd")
+                    json_textbox = dpg.add_input_text(default_value="any slow dumps?", width=-1, height=-1, multiline=True, tab_input=True, readonly=False)
+                    dump_json()
+
+
+            with dpg.tab(label="BYML"):
+                with dpg.child_window(autosize_x=True, autosize_y=True):
+                    dpg.add_text('lol gottem')
+
 
     return ainbwindow
 
@@ -198,6 +228,8 @@ def add_ainb_nodes(ainb: AINB, ainb_location: AinbIndexCacheEntry, node_editor):
                     # TODO Set Pointer Flag Bit Zero, maybe more
                     ui_k = f"*{k}: {aj_type}"
 
+                    # FIXME eg Sequence/Amiibo.module.ainb has multiple Bool names so I misunderstood something
+                    #print(f"{node_tag_ns}/Params/{k}")
                     with dpg.node_attribute(tag=f"{node_tag_ns}/Params/{k}", attribute_type=dpg.mvNode_Attr_Output):
                         # not much to show unless we're planning to execute the graph?
                         dpg.add_text(ui_k)
