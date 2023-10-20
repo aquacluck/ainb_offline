@@ -36,7 +36,7 @@ def main():
     # import dearpygui.demo as demo
     # demo.show_demo()
 
-    # dpg.set_primary_window(ainb_index_window, True)
+    dpg.set_primary_window(ainb_index_window, True)
     dpg.create_viewport(title="ainb offline", x_pos=0, y_pos=0, width=1600, height=1080, decorated=True, vsync=True)
     dpg.setup_dearpygui()
     dpg.show_viewport()
