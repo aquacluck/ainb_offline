@@ -23,15 +23,13 @@ def main():
         default_font = dpg.add_font("static/fonts/SourceCodePro-Regular.otf", 16)
     dpg.bind_font(default_font)
 
-    # TODO: infer romfs root from argv filename?
-    # EXAMPLE_AINBFILE = "romfs/Sequence/AutoPlacement.root.ainb"
-    # EXAMPLE_AINBFILE = "romfs/Sequence/ShortCutPauseOn.module.ainb"
+    ainb_index_window = open_ainb_index_window()
+
+    romfs = dpg.get_value(AppConfigKeys.ROMFS_PATH)
     use_ainbfile = sys.argv[-1] if str(sys.argv[-1]).endswith(".ainb") else None
     if use_ainbfile:
-        # FIXME defer opening graphs until ainb index is loaded?
-        open_ainb_graph_window(None, None, AinbIndexCacheEntry(use_ainbfile))
-
-    ainb_index_window = open_ainb_index_window()
+        use_ainbfile = use_ainbfile[len(romfs):].lstrip("/") if use_ainbfile.startswith(romfs) else use_ainbfile
+        open_ainb_graph_window(None, None, AinbIndexCacheEntry(ainbfile=use_ainbfile, packfile="Root"))
 
     # import dearpygui.demo as demo
     # demo.show_demo()

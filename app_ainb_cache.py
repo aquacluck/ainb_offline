@@ -8,7 +8,6 @@ import dearpygui.dearpygui as dpg
 
 import pack_util
 from app_types import *
-from window_ainb_graph import open_ainb_graph_window
 
 
 """
