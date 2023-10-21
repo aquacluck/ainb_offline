@@ -138,6 +138,6 @@ def get_ainb_index() -> Dict:
         with open(ainb_file_index_file, "w") as outfile:
             outfile.write(out)
     else:
-        print(f"Cache hits {entry_hit}/{entry_total}")
+        print(f"Cache hits {entry_hit}/{entry_total}\n")
 
     return ainb_cache
