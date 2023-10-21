@@ -102,15 +102,14 @@ def add_ainb_nodes(ainb: AINB, ainb_location: AinbIndexCacheEntry, node_editor):
         # print(label, flush=True)
 
         # Legend:
-        # @ flags and node meta
-        # # immediate params
-        # & input params
-        # * output params
+        # _nnn per-mode-per-type counter on params, like ainb indexing
+        # @4 flags and node meta
+        # $3 global params
+        # #2 immediate params
+        # I1 input params
+        # O0 output params
         #
-        # We're doing this because collapsible sections etc don't work:
-        # https://github.com/Nelarius/imnodes#known-issues
-        #
-        # Also all node contents must be in an attribute, which can make things weird
+        # All node contents must be in an attribute, which can make things weird
         #
         # ainb tag tree:
         #     /node{int}: Map<int, node_tag_ns>, a namespace for each node
@@ -118,11 +117,12 @@ def add_ainb_nodes(ainb: AINB, ainb_location: AinbIndexCacheEntry, node_editor):
         # Each node tag tree/ns contains:
         #     /Node: dpg.node
         #     /LinkTarget: dpg.node_attribute, used by flow control nodes to reference nodes they operate on
-        #     /Params/{str}: Map<str, dpg.node_attribute>, namespace for all parameters
+        #     /Params/Global Parameters/{str}: Map<str, dpg.node_attribute>
+        #     /Params/Immediate Parameters/{str}: Map<str, dpg.node_attribute>
+        #     /Params/Input Parameters/{str}: Map<str, dpg.node_attribute>
+        #     /Params/Output Parameters/{str}: Map<str, dpg.node_attribute>
         #     optional /stdlink{int}: Map<int, dpg.node_attribute>, Standard Link
         #     optional /reslink{int}: Map<int, dpg.node_attribute>, Resident Update Link
-
-        # FIXME add ns under /Params for separate Input, Output attributes. Stuff like AI/PhantomGanon.metaai.root.json, node 34, has dupe name Bool
 
         node_tag_ns = f"{ainb_tag_ns}/node{node_i}"
         with dpg.node(tag=f"{node_tag_ns}/Node", label=label, parent=node_editor) as node_tag:
@@ -130,7 +130,7 @@ def add_ainb_nodes(ainb: AINB, ainb_location: AinbIndexCacheEntry, node_editor):
                 for command_i, command in enumerate(aj.get("Commands", [])):
                     if node_i == command["Left Node Index"]:
                         cmd_name = command["Name"]
-                        dpg.add_text(f"@Command[{cmd_name}]")
+                        dpg.add_text(f"@ Command[{cmd_name}]")
 
                 for aj_flag in aj_node.get("Flags", []):
                     if aj_flag == "Is External AINB":
@@ -144,20 +144,18 @@ def add_ainb_nodes(ainb: AINB, ainb_location: AinbIndexCacheEntry, node_editor):
                             dest_ainbfile = aref["File Category"] + '/' + aref["File Path"]
                             dest_location = scoped_ainbfile_lookup(AinbIndexCacheEntry(ainbfile=dest_ainbfile, packfile=ainb_location.packfile))
                             with dpg.group(horizontal=True):
-                                dpg.add_text(f'@ExternalAINB[{aref["File Category"]}] {aref["File Path"]}')
+                                dpg.add_text(f'@ ExternalAINB[{aref["File Category"]}] {aref["File Path"]}')
                                 dpg.add_button(label="Open AINB", user_data=dest_location, callback=open_ainb_graph_window, arrow=True, direction=dpg.mvDir_Right)
                     else:
-                        dpg.add_text(f"@{aj_flag}")
+                        dpg.add_text(f"@ {aj_flag}")
 
             for aj_type, aj_params in aj_node.get("Immediate Parameters", {}).items():
                 for aj_param in aj_params:
                     k = str(aj_param.get("Name"))
                     v = aj_param.get("Value")
-                    # assume: param names of different input/output/etc types must still be unique
-                    #attr_tag = f"{node_editor}/ainb0/node{node_i}/immediate/{aj_type}/{k}"
-                    ui_k = f"#{k}: {aj_type}"
+                    ui_k = f"# {k}: {aj_type}"
 
-                    with dpg.node_attribute(tag=f"{node_tag_ns}/Params/{k}", attribute_type=dpg.mvNode_Attr_Static):
+                    with dpg.node_attribute(tag=f"{node_tag_ns}/Params/Immediate Parameters/{k}", attribute_type=dpg.mvNode_Attr_Static):
                         if aj_type == "int":
                             dpg.add_input_int(label=ui_k, width=80, default_value=v)
                         elif aj_type == "bool":
@@ -179,7 +177,7 @@ def add_ainb_nodes(ainb: AINB, ainb_location: AinbIndexCacheEntry, node_editor):
                 for aj_param in aj_params:
                     k = str(aj_param.get("Name"))
                     v = aj_param.get("Value")
-                    param_attr_tag = f"{node_tag_ns}/Params/{k}"
+                    param_attr_tag = f"{node_tag_ns}/Params/Input Parameters/{k}"
                     # TODO Global/EXB Index, Flags
                     # TODO node links: Node Index, Parameter Index
                     # or are these always the same as "Linked Nodes" "Output/bool Input/float Input Link"?
@@ -197,8 +195,7 @@ def add_ainb_nodes(ainb: AINB, ainb_location: AinbIndexCacheEntry, node_editor):
                             # breakpoint()
                             param_name = AppErrorStrings.FAILNULL
 
-                        # dst_attr_tag = f"{ainb_tag_ns}/node{dst_i}/Params/Input"
-                        dst_attr_tag = f"{ainb_tag_ns}/node{input_link_node}/Params/{param_name}"
+                        dst_attr_tag = f"{ainb_tag_ns}/node{input_link_node}/Params/Output Parameters/{param_name}"
 
                         if "Is Precondition Node" in aj_nodes[input_link_node].get("Flags", []):
                             pass
@@ -212,6 +209,9 @@ def add_ainb_nodes(ainb: AINB, ainb_location: AinbIndexCacheEntry, node_editor):
                         ))
                     else:
                         # TODO is -100 special...?  but clearly we should link `Sources`
+                        # if entry["Node Index"] <= -100 and entry["Node Index"] >= -8192:
+                        #     entry["Multi Index"] = -100 - entry["Node Index"]
+                        #     entry["Multi Count"] = entry["Parameter Index"]
                         # if input_link_node == -100: # what? eg Logic/A-1_2236.logic.root.ainb
                         # AI/PhantomGanon.metaai.root.json node 33 too. Which is its own precon?
                         # {'Name': 'BoolMulti', 'Node Index': -100, 'Parameter Index': 2, 'Value': False,
@@ -220,7 +220,7 @@ def add_ainb_nodes(ainb: AINB, ainb_location: AinbIndexCacheEntry, node_editor):
                         #print(f"Unhandled Input Parameter: {aj_param}")
 
 
-                    ui_k = f"&{k}: {aj_type}"
+                    ui_k = f"I {k}: {aj_type}"
 
                     with dpg.node_attribute(tag=param_attr_tag, attribute_type=dpg.mvNode_Attr_Input):
                         if aj_type == "int":
@@ -244,8 +244,8 @@ def add_ainb_nodes(ainb: AINB, ainb_location: AinbIndexCacheEntry, node_editor):
                 # TODO Set Pointer Flag Bit Zero, maybe more
                 for aj_param in aj_params:
                     param_name = aj_param.get("Name", AppErrorStrings.FAILNULL)
-                    ui_name = f"*{param_name}: {aj_type}"
-                    node_attr_tag = f"{node_tag_ns}/Params/{param_name}"
+                    ui_name = f"O {param_name}: {aj_type}"
+                    node_attr_tag = f"{node_tag_ns}/Params/Output Parameters/{param_name}"
 
                     try:
                         #print(node_attr_tag)
@@ -267,11 +267,10 @@ def add_ainb_nodes(ainb: AINB, ainb_location: AinbIndexCacheEntry, node_editor):
                         # is_link_found = False
                         remote_i = dst_i = aj_link["Node Index"]
                         local_param_name = aj_link["Parameter"]  # May be input or output
-                        my_attr_tag = f"{node_tag_ns}/Params/{local_param_name}"
 
                         # Find the local param being linked
                         local_type = None
-                        local_param_direction = None  # "Output Parameters" or "Input Parameters"?
+                        local_param_direction = None  # "Output Parameters" or "Input Parameters"
                         local_i_of_type = None
                         parameter_index = None
                         local_param_node_index = None
@@ -295,7 +294,8 @@ def add_ainb_nodes(ainb: AINB, ainb_location: AinbIndexCacheEntry, node_editor):
                                         for multi_item in list_of_nodeparams:
                                             multi_i = multi_item["Node Index"]
                                             multi_item_param_name = aj_nodes[multi_i]["Output Parameters"][local_type][multi_item["Parameter Index"]]["Name"]
-                                            remote_multi_attr_tag = f"{ainb_tag_ns}/node{multi_i}/Params/{multi_item_param_name}"
+                                            remote_multi_attr_tag = f"{ainb_tag_ns}/node{multi_i}/Params/Output Parameters/{multi_item_param_name}"
+                                            my_attr_tag = f"{node_tag_ns}/Params/Input Parameters/{local_param_name}"
                                             deferred_link_calls.append(DeferredNodeLinkCall(
                                                 src_attr=remote_multi_attr_tag,
                                                 dst_attr=my_attr_tag,
@@ -340,13 +340,14 @@ def add_ainb_nodes(ainb: AINB, ainb_location: AinbIndexCacheEntry, node_editor):
 
                                 remote_param_name = remote_param["Name"]
 
+                        my_attr_tag = f"{node_tag_ns}/Params/{local_param_direction}/{local_param_name}"
                         if remote_param_name is None and local_param_node_index < 0:
                             # return
                             pass # This is why multibool should return from "Linked Nodes" above...
                         elif remote_param_name is None and local_param_node_index > -1:
                             print(f"No remote param found for {my_attr_tag} in {aj_link}")
                         else:
-                            remote_attr_tag = f"{ainb_tag_ns}/node{remote_i}/Params/{remote_param_name}"
+                            remote_attr_tag = f"{ainb_tag_ns}/node{remote_i}/Params/{remote_param_direction}/{remote_param_name}"
 
                             # XXX is there anything more for when flags are precon, or was I just confused again
                             if local_param_direction == "Output Parameters":
@@ -400,7 +401,7 @@ def add_ainb_nodes(ainb: AINB, ainb_location: AinbIndexCacheEntry, node_editor):
 
                         dst_attr_tag = f"{ainb_tag_ns}/node{dst_i}/LinkTarget" # TODO learn some things
                         # if dst_param_name := aj_link["Update Info"].get("String"):
-                        #     # dst_attr_tag = f"{ainb_tag_ns}/node{dst_i}/Params/{dst_param_name}"
+                        #     # dst_attr_tag = f"{ainb_tag_ns}/node{dst_i}/Params/Input Parameters/{dst_param_name}"
                         #     # I don't understand how this String works, just point to the node for now.
                         #     dst_attr_tag = f"{ainb_tag_ns}/node{dst_i}/LinkTarget"
                         # else:
@@ -443,7 +444,8 @@ def add_ainb_nodes(ainb: AINB, ainb_location: AinbIndexCacheEntry, node_editor):
 
     # Add links
     for link in deferred_link_calls:
-        #print(link, flush=True)
+        # print(link, flush=True)
+        # breakpoint()
         dpg.add_node_link(link.src_attr, link.dst_attr, parent=link.parent)
         node_i_links[link.src_node_i].add(link.dst_node_i)
 
