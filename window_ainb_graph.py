@@ -10,6 +10,47 @@ import pack_util
 from app_types import *
 
 
+# Legend:
+# _nnn per-mode-per-type counter on params, like ainb indexing
+# @ flags and node meta
+# $ global params
+# # immediate params
+# I input params
+# O output params
+#
+# All dpg.node contents must be inside a dpg.node_attribute, which can make things weird.
+# dpg "nodes" are just the graph ui elements, although they do map to ainb nodes and this is a confusing coincidence
+#
+# ainb tag tree:
+#     /node{int}: Map<int, node_tag_ns>, a namespace for each node
+#
+# Each node tag tree/ns contains:
+#     /Node: dpg.node
+#     /LinkTarget: dpg.node_attribute, used by flow control nodes to reference nodes they operate on
+#     /Params/Global Parameters/{str}: Map<str, dpg.node_attribute>
+#     /Params/Immediate Parameters/{str}: Map<str, dpg.node_attribute>
+#     /Params/Input Parameters/{str}: Map<str, dpg.node_attribute>
+#     /Params/Output Parameters/{str}: Map<str, dpg.node_attribute>
+#     optional /stdlink{int}: Map<int, dpg.node_attribute>, Standard Link
+#     optional /reslink{int}: Map<int, dpg.node_attribute>, Resident Update Link
+
+
+@dataclass
+class RenderAinbNodeRequest:
+    # ainb
+    ainb: AINB
+    ainb_location: AinbIndexCacheEntry
+    aj: dict  # AINB.output_dict json
+    category: str  # AI Logic Sequence
+    # ainb node
+    aj_node: dict
+    node_i: int
+    # ui
+    node_editor: Union[int, str]
+    ainb_tag_ns: str
+    node_tag_ns: str
+
+
 def open_ainb_graph_window(s, a, ainb_location: AinbIndexCacheEntry):
     romfs = dpg.get_value(AppConfigKeys.ROMFS_PATH)
     if ainb_location.packfile is None:
@@ -75,375 +116,86 @@ def open_ainb_graph_window(s, a, ainb_location: AinbIndexCacheEntry):
                     # - BrainAinPath: Work/AI/Root/Enemy/EnemyBase.brain.root.ain
                     # - UtilityAinPath: Work/AI/Root/EnemyBase.utility.root.ain
 
-
     return ainbwindow
 
 
 def add_ainb_nodes(ainb: AINB, ainb_location: AinbIndexCacheEntry, node_editor):
-    from app_ainb_cache import scoped_ainbfile_lookup  # circular ImportError time, lol python
     aj = ainb.output_dict  # ainb json. we call him aj
     ainb_tag_ns = f"{node_editor}/ainb0"
+    category, _ainbfile = pathlib.Path(ainb_location.ainbfile).parts
+
+    # needed somewhere to throw a lot of vars...
+    render_reqs = [RenderAinbNodeRequest(
+        # ainb
+        ainb=ainb,
+        ainb_location=ainb_location,
+        aj=aj,
+        category=category,
+        # ainb node
+        aj_node=aj_node,
+        node_i=node_i,
+        # ui
+        node_editor=node_editor,
+        ainb_tag_ns=ainb_tag_ns,
+        node_tag_ns=f"{ainb_tag_ns}/node{node_i}",
+    ) for node_i, aj_node in enumerate(aj.get("Nodes", []))]
 
     # We can't link nodes that don't exist yet
     deferred_link_calls: List[DeferredNodeLinkCall] = []
-
-    # assume: `Node Index` always indexes into a sorted nonsparse `Nodes`
-    aj_nodes = aj.get("Nodes", [])
-    for aj_node in aj_nodes:
-        node_i = aj_node["Node Index"]
-        node_type = aj_node["Node Type"]
-        node_name = aj_node["Name"]
-        if node_type == "UserDefined":
-            label = f'"{node_name}"({node_i})'
-        elif node_name == "":
-            label = f"{node_type}({node_i})"
-        else:
-            label = f"{node_type}({node_i}): {node_name}"
-        # print(label, flush=True)
-
-        # Legend:
-        # _nnn per-mode-per-type counter on params, like ainb indexing
-        # @4 flags and node meta
-        # $3 global params
-        # #2 immediate params
-        # I1 input params
-        # O0 output params
-        #
-        # All node contents must be in an attribute, which can make things weird
-        #
-        # ainb tag tree:
-        #     /node{int}: Map<int, node_tag_ns>, a namespace for each node
-        #
-        # Each node tag tree/ns contains:
-        #     /Node: dpg.node
-        #     /LinkTarget: dpg.node_attribute, used by flow control nodes to reference nodes they operate on
-        #     /Params/Global Parameters/{str}: Map<str, dpg.node_attribute>
-        #     /Params/Immediate Parameters/{str}: Map<str, dpg.node_attribute>
-        #     /Params/Input Parameters/{str}: Map<str, dpg.node_attribute>
-        #     /Params/Output Parameters/{str}: Map<str, dpg.node_attribute>
-        #     optional /stdlink{int}: Map<int, dpg.node_attribute>, Standard Link
-        #     optional /reslink{int}: Map<int, dpg.node_attribute>, Resident Update Link
-
-        node_tag_ns = f"{ainb_tag_ns}/node{node_i}"
-        with dpg.node(tag=f"{node_tag_ns}/Node", label=label, parent=node_editor) as node_tag:
-            with dpg.node_attribute(tag=f"{node_tag_ns}/LinkTarget", attribute_type=dpg.mvNode_Attr_Input):
-                for command_i, command in enumerate(aj.get("Commands", [])):
-                    if node_i == command["Left Node Index"]:
-                        cmd_name = command["Name"]
-                        dpg.add_text(f"@ Command[{cmd_name}]")
-
-                for aj_flag in aj_node.get("Flags", []):
-                    if aj_flag == "Is External AINB":
-                        for aref in aj["Embedded AINB Files"]:
-                            if aref["File Path"] != aj_node["Name"] + ".ainb":
-                                continue
-
-                            #print(aref["Count"]) ...instance/link count? TODO
-
-                            # Try to resolve local pack -> global pack -> global Bare
-                            dest_ainbfile = aref["File Category"] + '/' + aref["File Path"]
-                            dest_location = scoped_ainbfile_lookup(AinbIndexCacheEntry(ainbfile=dest_ainbfile, packfile=ainb_location.packfile))
-                            with dpg.group(horizontal=True):
-                                dpg.add_text(f'@ ExternalAINB[{aref["File Category"]}] {aref["File Path"]}')
-                                dpg.add_button(label="Open AINB", user_data=dest_location, callback=open_ainb_graph_window, arrow=True, direction=dpg.mvDir_Right)
-                    else:
-                        dpg.add_text(f"@ {aj_flag}")
-
-            for aj_type, aj_params in aj_node.get("Immediate Parameters", {}).items():
-                for aj_param in aj_params:
-                    k = str(aj_param.get("Name"))
-                    v = aj_param.get("Value")
-                    ui_k = f"# {k}: {aj_type}"
-
-                    with dpg.node_attribute(tag=f"{node_tag_ns}/Params/Immediate Parameters/{k}", attribute_type=dpg.mvNode_Attr_Static):
-                        if aj_type == "int":
-                            dpg.add_input_int(label=ui_k, width=80, default_value=v)
-                        elif aj_type == "bool":
-                            dpg.add_checkbox(label=ui_k, default_value=v)
-                        elif aj_type == "float":
-                            dpg.add_input_float(label=ui_k, width=100, default_value=v)
-                        elif aj_type == "string":
-                            dpg.add_input_text(label=ui_k, width=150, default_value=v)
-                        elif aj_type == "vec3f":
-                            # import pdb; pdb.set_trace()
-                            dpg.add_input_text(label=ui_k, width=300, default_value=v)
-                        elif aj_type == "userdefined":
-                            dpg.add_input_text(label=ui_k, width=300, default_value=v)
-                        else:
-                            raise NotImplementedError(f"bruh typo in ur type {aj_type}")
-
-
-            for aj_type, aj_params in aj_node.get("Input Parameters", {}).items():
-                for aj_param in aj_params:
-                    k = str(aj_param.get("Name"))
-                    v = aj_param.get("Value")
-                    param_attr_tag = f"{node_tag_ns}/Params/Input Parameters/{k}"
-                    # TODO Global/EXB Index, Flags
-                    # TODO node links: Node Index, Parameter Index
-                    # or are these always the same as "Linked Nodes" "Output/bool Input/float Input Link"?
-                    # when these point into precondition nodes, we don't always get the ^ link, so we need this?
-                    # not choosing rn, so we get multiple links sometimes
-
-                    input_link_node = aj_param.get("Node Index", -1)
-                    input_link_param = aj_param.get("Parameter Index", -1)
-                    if input_link_node > -1 and input_link_param > -1:
-                        try:
-                            _linked_params_of_type = aj_nodes[input_link_node]["Output Parameters"][aj_type]
-                            param_name = _linked_params_of_type[input_link_param].get("Name", AppErrorStrings.FAILNULL)
-                        except IndexError as e:
-                            print(f"Link failure: {input_link_param} > {len(_linked_params_of_type)} in {param_attr_tag}? {e}")
-                            # breakpoint()
-                            param_name = AppErrorStrings.FAILNULL
-
-                        dst_attr_tag = f"{ainb_tag_ns}/node{input_link_node}/Params/Output Parameters/{param_name}"
-
-                        if "Is Precondition Node" in aj_nodes[input_link_node].get("Flags", []):
-                            pass
-
-                        deferred_link_calls.append(DeferredNodeLinkCall(
-                            src_attr=param_attr_tag,
-                            dst_attr=dst_attr_tag,
-                            src_node_i=node_i,
-                            dst_node_i=input_link_node,
-                            parent=node_editor
-                        ))
-                    else:
-                        # TODO is -100 special...?  but clearly we should link `Sources`
-                        # if entry["Node Index"] <= -100 and entry["Node Index"] >= -8192:
-                        #     entry["Multi Index"] = -100 - entry["Node Index"]
-                        #     entry["Multi Count"] = entry["Parameter Index"]
-                        # if input_link_node == -100: # what? eg Logic/A-1_2236.logic.root.ainb
-                        # AI/PhantomGanon.metaai.root.json node 33 too. Which is its own precon?
-                        # {'Name': 'BoolMulti', 'Node Index': -100, 'Parameter Index': 2, 'Value': False,
-                        # 'Sources': [{'Node Index': 1, 'Parameter Index': 0}, {'Node Index': 3, 'Parameter Index': 2}]}
-                        pass
-                        #print(f"Unhandled Input Parameter: {aj_param}")
-
-
-                    ui_k = f"I {k}: {aj_type}"
-
-                    with dpg.node_attribute(tag=param_attr_tag, attribute_type=dpg.mvNode_Attr_Input):
-                        if aj_type == "int":
-                            dpg.add_input_int(label=ui_k, width=80, default_value=v)
-                        elif aj_type == "bool":
-                            dpg.add_checkbox(label=ui_k, default_value=v)
-                        elif aj_type == "float":
-                            dpg.add_input_float(label=ui_k, width=100, default_value=v)
-                        elif aj_type == "string":
-                            dpg.add_input_text(label=ui_k, width=150, default_value=v)
-                        elif aj_type == "vec3f":
-                            # import pdb; pdb.set_trace()
-                            dpg.add_input_text(label=ui_k, width=300, default_value=v)
-                        elif aj_type == "userdefined":
-                            dpg.add_input_text(label=ui_k, width=300, default_value=v)
-                        else:
-                            raise NotImplementedError(f"bruh typo in ur type {aj_type}")
-
-
-            for aj_type, aj_params in aj_node.get("Output Parameters", {}).items():
-                # TODO Set Pointer Flag Bit Zero, maybe more
-                for aj_param in aj_params:
-                    param_name = aj_param.get("Name", AppErrorStrings.FAILNULL)
-                    ui_name = f"O {param_name}: {aj_type}"
-                    node_attr_tag = f"{node_tag_ns}/Params/Output Parameters/{param_name}"
-
-                    try:
-                        #print(node_attr_tag)
-                        with dpg.node_attribute(tag=node_attr_tag, attribute_type=dpg.mvNode_Attr_Output):
-                            # not much to show unless we're planning to execute the graph?
-                            dpg.add_text(ui_name)
-                    except SystemError as e:
-                        # FIXME eg Sequence/Amiibo.module.ainb has multiple Bool names so I misunderstood something
-                        # let's not blow up the whole graph
-                        # breakpoint()
-                        print(f"Failed adding node_attribute {node_attr_tag} type {aj_type}: {e}")
-
-
-            # aj_type = None  # TODO split shit up so we don't have to deal with leaked vars at least
-            for aj_link_type, aj_links in aj_node.get("Linked Nodes", {}).items():
-                for i_of_type, aj_link in enumerate(aj_links):
-                    #print(aj_link_type, aj_link)
-                    if aj_link_type == "Output/bool Input/float Input Link": # 0
-                        # is_link_found = False
-                        remote_i = dst_i = aj_link["Node Index"]
-                        local_param_name = aj_link["Parameter"]  # May be input or output
-
-                        # Find the local param being linked
-                        local_type = None
-                        local_param_direction = None  # "Output Parameters" or "Input Parameters"
-                        local_i_of_type = None
-                        parameter_index = None
-                        local_param_node_index = None
-
-                        for _local_type, local_params in aj_node.get("Input Parameters", {}).items():
-                            for _i_of_type, local_param in enumerate(local_params):
-                                if local_param["Name"] == local_param_name:
-                                    local_type = _local_type
-                                    local_param_direction = "Input Parameters"
-                                    remote_param_direction = "Output Parameters"
-                                    local_i_of_type = _i_of_type
-                                    local_param_node_index = local_param["Node Index"]
-                                    if local_param_node_index == -1:
-                                        print(f"Unhandled -1 source node in Input Parameters - {aj_link_type}")
-                                        pass # grabbing globals/exb???
-                                        # continue 2?
-                                    elif local_param_node_index in [-100, -110]:
-                                        # Always multibool?
-                                        len_of_nodeparams = local_param["Parameter Index"]  # unused?
-                                        list_of_nodeparams = local_param["Sources"]
-                                        for multi_item in list_of_nodeparams:
-                                            multi_i = multi_item["Node Index"]
-                                            multi_item_param_name = aj_nodes[multi_i]["Output Parameters"][local_type][multi_item["Parameter Index"]]["Name"]
-                                            remote_multi_attr_tag = f"{ainb_tag_ns}/node{multi_i}/Params/Output Parameters/{multi_item_param_name}"
-                                            my_attr_tag = f"{node_tag_ns}/Params/Input Parameters/{local_param_name}"
-                                            deferred_link_calls.append(DeferredNodeLinkCall(
-                                                src_attr=remote_multi_attr_tag,
-                                                dst_attr=my_attr_tag,
-                                                src_node_i=multi_i,
-                                                dst_node_i=node_i,
-                                                parent=node_editor
-                                            ))
-                                            # Return from this "Linked Nodes" item, no?
-                                    else:
-                                        if local_param_node_index != remote_i:
-                                            breakpoint()
-                                        assert local_param_node_index == remote_i
-                                        parameter_index = local_param["Parameter Index"]
-
-                        for _local_type, local_params in aj_node.get("Output Parameters", {}).items():
-                            for _i_of_type, local_param in enumerate(local_params):
-                                if local_param["Name"] == local_param_name:
-                                    local_type = _local_type
-                                    local_param_direction = "Output Parameters"
-                                    remote_param_direction = "Input Parameters"
-                                    local_i_of_type = _i_of_type
-
-                        # Remote is the opposite direction
-                        assert local_type is not None and local_param_direction is not None and local_i_of_type is not None
-                        remote_type = local_type
-
-                        # Resolve whatever the param is called in the remote node, we need this for visually linking to the remote
-                        remote_param_name = None
-                        remote_params = aj_nodes[remote_i][remote_param_direction].get(remote_type, [])
-                        if parameter_index is not None:
-                            remote_param = remote_params[parameter_index]
-                            remote_param_name = remote_param["Name"]
-                        else:
-                            for remote_param in remote_params:
-                                # Pointing to our node?
-                                if remote_param.get("Node Index") != node_i:
-                                    continue
-
-                                # Correct index into per-type param list?
-                                if remote_param.get("Parameter Index") != local_i_of_type:
-                                    continue
-
-                                remote_param_name = remote_param["Name"]
-
-                        my_attr_tag = f"{node_tag_ns}/Params/{local_param_direction}/{local_param_name}"
-                        if remote_param_name is None and local_param_node_index < 0:
-                            # return
-                            pass # This is why multibool should return from "Linked Nodes" above...
-                        elif remote_param_name is None and local_param_node_index > -1:
-                            print(f"No remote param found for {my_attr_tag} in {aj_link}")
-                        else:
-                            remote_attr_tag = f"{ainb_tag_ns}/node{remote_i}/Params/{remote_param_direction}/{remote_param_name}"
-
-                            # XXX is there anything more for when flags are precon, or was I just confused again
-                            if local_param_direction == "Output Parameters":
-                                deferred_link_calls.append(DeferredNodeLinkCall(
-                                    src_attr=my_attr_tag,
-                                    dst_attr=remote_attr_tag,
-                                    src_node_i=node_i,
-                                    dst_node_i=remote_i,
-                                    parent=node_editor
-                                ))
-                            else:
-                                deferred_link_calls.append(DeferredNodeLinkCall(
-                                    src_attr=remote_attr_tag,
-                                    dst_attr=my_attr_tag,
-                                    src_node_i=remote_i,
-                                    dst_node_i=node_i,
-                                    parent=node_editor
-                                ))
-
-                    elif aj_link_type == "Standard Link": # 2
-                        # refs to entire nodes for stuff like simultaneous, selectors.
-                        # make new node attributes to support links to children.
-                        dst_i = aj_link["Node Index"]
-                        my_attr_tag = f"{node_tag_ns}/stdlink{i_of_type}"
-                        dst_attr_tag = f"{ainb_tag_ns}/node{dst_i}/LinkTarget"
-
-                        with dpg.node_attribute(tag=my_attr_tag, attribute_type=dpg.mvNode_Attr_Output):
-                            labels = []
-                            if cname := aj_link.get("Connection Name"):
-                                labels.append(cname)
-                            if cond := aj_link.get("Condition"):
-                                labels.append(f"Condition: {cond}")
-                            label = ", ".join(labels) or f"[{aj_link_type}]"
-                            dpg.add_text(label)
-
-                        deferred_link_calls.append(DeferredNodeLinkCall(
-                            src_attr=my_attr_tag,
-                            dst_attr=dst_attr_tag,
-                            src_node_i=node_i,
-                            dst_node_i=dst_i,
-                            parent=node_editor
-                        ))
-
-                    elif aj_link_type == "Resident Update Link": # 3
-                        # pointers to params owned by other nodes? idk
-                        # pulling in references to other nodes? idk
-                        dst_i = aj_link["Node Index"]
-                        my_attr_tag = f"{node_tag_ns}/reslink{i_of_type}"
-
-                        # print(aj_link)
-
-                        dst_attr_tag = f"{ainb_tag_ns}/node{dst_i}/LinkTarget" # TODO learn some things
-                        # if dst_param_name := aj_link["Update Info"].get("String"):
-                        #     # dst_attr_tag = f"{ainb_tag_ns}/node{dst_i}/Params/Input Parameters/{dst_param_name}"
-                        #     # I don't understand how this String works, just point to the node for now.
-                        #     dst_attr_tag = f"{ainb_tag_ns}/node{dst_i}/LinkTarget"
-                        # else:
-                        #     # Pointing into things like Element_Sequential or UDT @Is External AINB
-                        #     # seem to not specify a String, so we'll just point at the node itself until
-                        #     # this default/lhs/internal/??? param is better understood.
-                        #     # The ResUpdate flags usually include "Is Valid Update" when this happens.
-                        #     dst_attr_tag = f"{ainb_tag_ns}/node{dst_i}/LinkTarget"
-
-                        with dpg.node_attribute(tag=my_attr_tag, attribute_type=dpg.mvNode_Attr_Output):
-                            flags = aj_link["Update Info"]["Flags"]
-                            flags = "|".join((" ".join(flags)).split())  # bad ainb parse?
-                            label = f"[ResUpdate] ({flags})" if flags else "[ResUpdate]"
-                            dpg.add_text(label)
-
-                        deferred_link_calls.append(DeferredNodeLinkCall(
-                            src_attr=my_attr_tag,
-                            dst_attr=dst_attr_tag,
-                            src_node_i=node_i,
-                            dst_node_i=dst_i,
-                            parent=node_editor
-                        ))
-
-                    elif aj_link_type == "String Input Link": # 4
-                        pass
-                    elif aj_link_type == "int Input Link": # 5
-                        # just the opposite direction of type 0?
-                        pass
-                    else:
-                        breakpoint()
-                        raise NotImplementedError(f"bruh stink in ur link {aj_link_type}")
-
-        # end with dpg.node
-    # end for aj_node
-
+    for req in render_reqs:
+        pending_links = render_ainb_node(req)
+        deferred_link_calls += pending_links
 
     # All nodes+attributes exist, now we can link them
-    node_max_depth_map = defaultdict(int)  # commands start at 0
-    node_i_links = defaultdict(set)
+    render_ainb_file_links_and_layout(req, deferred_link_calls)
 
+
+def render_ainb_node(req: RenderAinbNodeRequest) -> List[DeferredNodeLinkCall]:
+    output_attr_links: List[DeferredNodeLinkCall] = []
+
+    node_type = req.aj_node["Node Type"]
+    node_name = req.aj_node["Name"]
+    if node_type == "UserDefined":
+        label = f'"{node_name}"({req.node_i})'
+    elif node_name == "":
+        label = f"{node_type}({req.node_i})"
+    else:
+        label = f"{node_type}({req.node_i}): {node_name}"
+    # print(label, flush=True)
+
+
+    with dpg.node(tag=f"{req.node_tag_ns}/Node", label=label, parent=req.node_editor) as node_tag_:
+        render_ainb_node_topmeta(req)
+
+        # TODO globals
+        render_ainb_node_immediate_params(req.node_tag_ns, req.aj_node.get("Immediate Parameters", {}))
+        render_ainb_node_input_params(req.node_tag_ns, req.aj_node.get("Input Parameters", {}))
+        render_ainb_node_output_params(req.node_tag_ns, req.aj_node.get("Output Parameters", {}))
+
+        for aj_link_type, aj_links in req.aj_node.get("Linked Nodes", {}).items():
+            for i_of_link_type, aj_link in enumerate(aj_links):
+                #print(aj_link_type, aj_link)
+                if aj_link_type == "Output/bool Input/float Input Link": # 0
+                    output_attr_links += process_ainb_node_link__outputboolinputfloatinput_link(req, aj_link, i_of_link_type)
+                elif aj_link_type == "Standard Link": # 2
+                    output_attr_links += process_ainb_node_link__standard_link(req, aj_link, i_of_link_type)
+                elif aj_link_type == "Resident Update Link": # 3
+                    output_attr_links += process_ainb_node_link__resident_update_link(req, aj_link, i_of_link_type)
+                elif aj_link_type == "String Input Link": # 4
+                    pass # output_attr_links += process_ainb_node_link__string_input_link(req, aj_link, i_of_link_type)
+                elif aj_link_type == "int Input Link": # 5 the opposite direction of type 0? TODO learn things
+                    pass # output_attr_links += process_ainb_node_link__int_input_link(req, aj_link, i_of_link_type)
+                else:
+                    print(f"Unsupported link type {aj_link_type}")
+                    breakpoint()
+                    continue
+    return output_attr_links
+
+
+def render_ainb_file_links_and_layout(req: RenderAinbNodeRequest, link_calls: List[DeferredNodeLinkCall]):
     # Add links
-    for link in deferred_link_calls:
+    node_i_links = defaultdict(set)
+    for link in link_calls:
         # print(link, flush=True)
         # breakpoint()
         dpg.add_node_link(link.src_attr, link.dst_attr, parent=link.parent)
@@ -459,11 +211,13 @@ def add_ainb_nodes(ainb: AINB, ainb_location: AinbIndexCacheEntry, node_editor):
     CORNER_PAD = 10  # Distance from top left corner for root
 
     # Determine each node's depth = x coord
-    for command_i, command in enumerate(aj.get("Commands", [])):
+    node_max_depth_map = defaultdict(int)  # commands start at 0
+    for command_i, command in enumerate(req.aj.get("Commands", [])):
         node_i = command["Left Node Index"]
         if node_i == -1:
             continue
 
+        # FIXME something in Sequence/Amiibo.module.ainb is going infinite, it was bound to happen
         def walk_for_depth_map(node_i, walk_depth):
             cur_max_depth = node_max_depth_map[node_i]
             if walk_depth > cur_max_depth:
@@ -495,7 +249,7 @@ def add_ainb_nodes(ainb: AINB, ainb_location: AinbIndexCacheEntry, node_editor):
     # Layout
     node_y_at_depth = defaultdict(int)
     for node_i, max_depth in node_max_depth_map.items():
-        node_tag = f"{ainb_tag_ns}/node{node_i}/Node"
+        node_tag = f"{req.ainb_tag_ns}/node{node_i}/Node"
         x = LAYOUT_X_SPACING * max_depth - entry_point_offset[0]
         y = LAYOUT_Y_SPACING * node_y_at_depth[max_depth] - entry_point_offset[1]
         node_y_at_depth[max_depth] += 1
@@ -503,3 +257,290 @@ def add_ainb_nodes(ainb: AINB, ainb_location: AinbIndexCacheEntry, node_editor):
         # print(node_tag, pos)
         dpg.set_item_pos(node_tag, pos)
 
+
+def render_ainb_node_topmeta(req: RenderAinbNodeRequest) -> None:
+    from app_ainb_cache import scoped_ainbfile_lookup  # circular ImportError time, lol python
+
+    with dpg.node_attribute(tag=f"{req.node_tag_ns}/LinkTarget", attribute_type=dpg.mvNode_Attr_Input):
+        for command_i, command in enumerate(req.aj.get("Commands", [])):
+            if req.node_i == command["Left Node Index"]:
+                cmd_name = command["Name"]
+                dpg.add_text(f"@ Command[{cmd_name}]")
+
+
+        for aj_flag in req.aj_node.get("Flags", []):
+            if aj_flag == "Is External AINB":
+                for aref in req.aj["Embedded AINB Files"]:
+                    if aref["File Path"] != req.aj_node["Name"] + ".ainb":
+                        continue
+
+                    #print(aref["Count"]) ...instance/link count? TODO
+
+                    # Try to resolve local pack -> global pack -> global Bare
+                    dest_ainbfile = aref["File Category"] + '/' + aref["File Path"]
+                    dest_location = scoped_ainbfile_lookup(AinbIndexCacheEntry(ainbfile=dest_ainbfile, packfile=req.ainb_location.packfile))
+                    with dpg.group(horizontal=True):
+                        dpg.add_text(f'@ ExternalAINB[{aref["File Category"]}] {aref["File Path"]}')
+                        dpg.add_button(label="Open AINB", user_data=dest_location, callback=open_ainb_graph_window, arrow=True, direction=dpg.mvDir_Right)
+            else:
+                dpg.add_text(f"@ {aj_flag}")
+
+
+def render_ainb_node_immediate_params(node_tag_ns: str, typed_params: Dict[str, List[Dict]]):
+    for aj_type, aj_params in typed_params.items():
+        i_of_type = -1
+        for aj_param in aj_params:
+            i_of_type += 1
+            param_name = aj_param.get("Name", AppErrorStrings.FAILNULL)
+            v = aj_param.get("Value")
+            ui_label = f"# {aj_type} {i_of_type}: {param_name}"
+
+            with dpg.node_attribute(tag=f"{node_tag_ns}/Params/Immediate Parameters/{param_name}", attribute_type=dpg.mvNode_Attr_Static):
+                if aj_type == "int":
+                    dpg.add_input_int(label=ui_label, width=80, default_value=v)
+                elif aj_type == "bool":
+                    dpg.add_checkbox(label=ui_label, default_value=v)
+                elif aj_type == "float":
+                    dpg.add_input_float(label=ui_label, width=100, default_value=v)
+                elif aj_type == "string":
+                    dpg.add_input_text(label=ui_label, width=150, default_value=v)
+                elif aj_type == "vec3f":
+                    dpg.add_input_text(label=ui_label, width=300, default_value=v)
+                elif aj_type == "userdefined":
+                    dpg.add_input_text(label=ui_label, width=300, default_value=v)
+                else:
+                    err_label = f"bruh typo in ur type {aj_type}"
+                    dpg.add_text(label=err_label, width=300, default_value=v)
+
+
+# TODO lol whats an attachment (runtime node replacement...?)
+# TODO Global/EXB Index, Flags
+# if entry["Node Index"] <= -100 and entry["Node Index"] >= -8192:
+#     entry["Multi Index"] = -100 - entry["Node Index"]
+#     entry["Multi Count"] = entry["Parameter Index"]
+# AI/PhantomGanon.metaai.root.json node 33 is its own precon?
+def render_ainb_node_input_params(node_tag_ns: str, typed_params: Dict[str, List[Dict]]):
+    for aj_type, aj_params in typed_params.items():
+        i_of_type = -1
+        for aj_param in aj_params:
+            i_of_type += 1
+            param_name = aj_param.get("Name", AppErrorStrings.FAILNULL)
+            v = aj_param.get("Value")
+            ui_label = f"I {aj_type} {i_of_type}: {param_name}"
+
+            with dpg.node_attribute(tag=f"{node_tag_ns}/Params/Input Parameters/{param_name}", attribute_type=dpg.mvNode_Attr_Input):
+                if aj_type == "int":
+                    dpg.add_input_int(label=ui_label, width=80, default_value=v)
+                elif aj_type == "bool":
+                    dpg.add_checkbox(label=ui_label, default_value=v)
+                elif aj_type == "float":
+                    dpg.add_input_float(label=ui_label, width=100, default_value=v)
+                elif aj_type == "string":
+                    dpg.add_input_text(label=ui_label, width=150, default_value=v)
+                elif aj_type == "vec3f":
+                    dpg.add_input_text(label=ui_label, width=300, default_value=v)
+                elif aj_type == "userdefined":
+                    dpg.add_input_text(label=ui_label, width=300, default_value=v)
+                else:
+                    err_label = f"bruh typo in ur type {aj_type}"
+                    dpg.add_text(label=err_label, width=300, default_value=v)
+
+
+# TODO Set Pointer Flag Bit Zero, maybe more
+def render_ainb_node_output_params(node_tag_ns: str, typed_params: Dict[str, List[Dict]]):
+    for aj_type, aj_params in typed_params.items():
+        i_of_type = -1
+        for aj_param in aj_params:
+            i_of_type += 1
+            param_name = aj_param.get("Name", AppErrorStrings.FAILNULL)
+            v = aj_param.get("Value")
+            ui_label = f"O {aj_type} {i_of_type}: {param_name}"
+
+            with dpg.node_attribute(tag=f"{node_tag_ns}/Params/Output Parameters/{param_name}", attribute_type=dpg.mvNode_Attr_Output):
+                # not much to show unless we're planning to execute the graph?
+                dpg.add_text(ui_label)
+
+
+def process_ainb_node_link__outputboolinputfloatinput_link(req: RenderAinbNodeRequest, aj_link: Dict, i_of_link_type: int) -> List[DeferredNodeLinkCall]:
+    aj_link_type = "Output/bool Input/float Input Link"
+    output_attr_links = []
+
+    remote_i = aj_link["Node Index"]
+    local_param_name = aj_link["Parameter"]  # May be input or output
+
+    # Find the local param being linked
+    local_type = None
+    local_param_direction = None  # "Output Parameters" or "Input Parameters"
+    local_i_of_type = None
+    parameter_index = None
+    local_param_node_index = None
+
+    for _local_type, local_params in req.aj_node.get("Input Parameters", {}).items():
+        for _i_of_type, local_param in enumerate(local_params):
+            if local_param["Name"] == local_param_name:
+                local_type = _local_type
+                local_param_direction = "Input Parameters"
+                remote_param_direction = "Output Parameters"
+                local_i_of_type = _i_of_type
+                local_param_node_index = local_param["Node Index"]
+
+                if local_param_node_index in [-100, -110]:
+                    # Always multibool?
+                    len_of_nodeparams = local_param["Parameter Index"]  # unused?
+                    list_of_nodeparams = local_param["Sources"]
+                    for multi_item in list_of_nodeparams:
+                        multi_i = multi_item["Node Index"]
+                        multi_item_param_name = req.aj["Nodes"][multi_i]["Output Parameters"][local_type][multi_item["Parameter Index"]]["Name"]
+                        remote_multi_attr_tag = f"{req.ainb_tag_ns}/node{multi_i}/Params/Output Parameters/{multi_item_param_name}"
+                        my_attr_tag = f"{req.node_tag_ns}/Params/Input Parameters/{local_param_name}"
+                        output_attr_links.append(DeferredNodeLinkCall(
+                            src_attr=remote_multi_attr_tag,
+                            dst_attr=my_attr_tag,
+                            src_node_i=multi_i,
+                            dst_node_i=req.node_i,
+                            parent=req.node_editor
+                        ))
+                    return output_attr_links  # Return multi links
+
+                elif local_param_node_index < 0:
+                    # grabbing globals/exb???
+                    print(f"Unhandled {local_param_node_index} source node in Input Parameters - {aj_link_type}")
+                    return output_attr_links  # TODO Return nothing for now
+
+                else:
+                    if local_param_node_index != remote_i:
+                        # FIXME loop+segfault in AI/EquipEventNPC.event.root.ainb, and some Bool business
+                        # Unhandled local_param_node_index 269 != remote_i 268
+                        print(f"Unhandled local_param_node_index {local_param_node_index} != remote_i {remote_i}")
+                        # breakpoint()
+                        return output_attr_links # XXX Return nothing? I'm doing something wrong lol, get examples
+                    parameter_index = local_param["Parameter Index"]  # can this still be a multi?
+
+    for _local_type, local_params in req.aj_node.get("Output Parameters", {}).items():
+        for _i_of_type, local_param in enumerate(local_params):
+            if local_param["Name"] == local_param_name:
+                local_type = _local_type
+                local_param_direction = "Output Parameters"
+                remote_param_direction = "Input Parameters"
+                local_i_of_type = _i_of_type
+
+    # Remote is the opposite direction
+    assert local_type is not None and local_param_direction is not None and local_i_of_type is not None
+    remote_type = local_type
+
+    # Resolve whatever the param is called in the remote node, we need this for visually linking to the remote
+    remote_param_name = None
+    remote_params = req.aj["Nodes"][remote_i].get(remote_param_direction, {}).get(remote_type, [])
+    if parameter_index is not None and parameter_index >= len(remote_params):
+        # TODO Something from multis leaking, or some other lookup...?
+        # FIXME AI/PhantomGanon.metaai.root.ainb, and Bool business
+        # off by one? `parameter_index 0 too long for remote_params [] in remote node 78`
+        print(f"parameter_index {parameter_index} too long for remote_params {remote_params} in remote node {remote_i}")
+    elif parameter_index is not None:
+        remote_param = remote_params[parameter_index]
+        remote_param_name = remote_param["Name"]
+    else:
+        for remote_param in remote_params:
+            # Pointing to our node?
+            if remote_param.get("Node Index") != req.node_i:
+                continue
+
+            # Correct index into per-type param list?
+            if remote_param.get("Parameter Index") != local_i_of_type:
+                continue
+
+            remote_param_name = remote_param["Name"]
+
+    my_attr_tag = f"{req.node_tag_ns}/Params/{local_param_direction}/{local_param_name}"
+    if remote_param_name is None and local_param_node_index > -1:
+        # XXX is this right
+        print(f"No remote param found for {my_attr_tag} in {aj_link}")
+    else:
+        remote_attr_tag = f"{req.ainb_tag_ns}/node{remote_i}/Params/{remote_param_direction}/{remote_param_name}"
+
+        # XXX is there anything more for when flags are precon, or was I just confused again
+        if local_param_direction == "Output Parameters":
+            output_attr_links.append(DeferredNodeLinkCall(
+                src_attr=my_attr_tag,
+                dst_attr=remote_attr_tag,
+                src_node_i=req.node_i,
+                dst_node_i=remote_i,
+                parent=req.node_editor
+            ))
+        else:
+            output_attr_links.append(DeferredNodeLinkCall(
+                src_attr=remote_attr_tag,
+                dst_attr=my_attr_tag,
+                src_node_i=remote_i,
+                dst_node_i=req.node_i,
+                parent=req.node_editor
+            ))
+    return output_attr_links
+
+
+def process_ainb_node_link__standard_link(req: RenderAinbNodeRequest, aj_link: Dict, i_of_link_type: int) -> List[DeferredNodeLinkCall]:
+    aj_link_type = "Standard Link"
+    output_attr_links = []
+
+    # refs to entire nodes for stuff like simultaneous, selectors.
+    # make new node attributes to support links to children.
+    dst_i = aj_link["Node Index"]
+    my_attr_tag = f"{req.node_tag_ns}/stdlink{i_of_link_type}"
+    dst_attr_tag = f"{req.ainb_tag_ns}/node{dst_i}/LinkTarget"
+
+    with dpg.node_attribute(tag=my_attr_tag, attribute_type=dpg.mvNode_Attr_Output):
+        labels = []
+        if cname := aj_link.get("Connection Name"):
+            labels.append(cname)
+        if cond := aj_link.get("Condition"):
+            labels.append(f"Condition: {cond}")
+        label = ", ".join(labels) or f"[{aj_link_type}]"
+        dpg.add_text(label)
+
+    output_attr_links.append(DeferredNodeLinkCall(
+        src_attr=my_attr_tag,
+        dst_attr=dst_attr_tag,
+        src_node_i=req.node_i,
+        dst_node_i=dst_i,
+        parent=req.node_editor
+    ))
+    return output_attr_links
+
+
+def process_ainb_node_link__resident_update_link(req: RenderAinbNodeRequest, aj_link: Dict, i_of_link_type: int) -> List[DeferredNodeLinkCall]:
+    aj_link_type = "Resident Update Link"
+    output_attr_links = []
+
+    # pointers to params owned by other nodes? idk
+    # pulling in references to other nodes? idk
+    dst_i = aj_link["Node Index"]
+    my_attr_tag = f"{req.node_tag_ns}/reslink{i_of_link_type}"
+
+    # print(aj_link)
+
+    dst_attr_tag = f"{req.ainb_tag_ns}/node{dst_i}/LinkTarget" # TODO learn some things
+    # if dst_param_name := aj_link["Update Info"].get("String"):
+    #     # dst_attr_tag = f"{req.ainb_tag_ns}/node{dst_i}/Params/Input Parameters/{dst_param_name}"
+    #     # I don't understand how this String works, just point to the node for now.
+    #     dst_attr_tag = f"{req.ainb_tag_ns}/node{dst_i}/LinkTarget"
+    # else:
+    #     # Pointing into things like Element_Sequential or UDT @Is External AINB
+    #     # seem to not specify a String, so we'll just point at the node itself until
+    #     # this default/lhs/internal/??? param is better understood.
+    #     # The ResUpdate flags usually include "Is Valid Update" when this happens.
+    #     dst_attr_tag = f"{req.ainb_tag_ns}/node{dst_i}/LinkTarget"
+
+    with dpg.node_attribute(tag=my_attr_tag, attribute_type=dpg.mvNode_Attr_Output):
+        flags = aj_link["Update Info"]["Flags"]
+        flags = "|".join((" ".join(flags)).split())  # bad ainb parse?
+        label = f"[ResUpdate] ({flags})" if flags else "[ResUpdate]"
+        dpg.add_text(label)
+
+    output_attr_links.append(DeferredNodeLinkCall(
+        src_attr=my_attr_tag,
+        dst_attr=dst_attr_tag,
+        src_node_i=req.node_i,
+        dst_node_i=dst_i,
+        parent=req.node_editor
+    ))
+    return output_attr_links
