@@ -52,18 +52,15 @@ class RenderAinbNodeRequest:
 
 
 def open_ainb_graph_window(s, a, ainb_location: AinbIndexCacheEntry):
+    print(f"Opening {ainb_location.packfile}:/{ainb_location.ainbfile}")
     romfs = dpg.get_value(AppConfigKeys.ROMFS_PATH)
-    if ainb_location.packfile is None:
-        print(f"Opening {romfs}/{ainb_location.ainbfile}")
+    category, ainbfile = pathlib.Path(ainb_location.ainbfile).parts
+
+    if ainb_location.packfile == "Root":
         ainb = AINB(open(f"{romfs}/{ainb_location.ainbfile}", "rb").read())
-        # TODO verify romfs/pack relative ainb location is always 2 part {category}/{ainbfile} and categories are always accurate
-        category, ainbfile = pathlib.Path(ainb_location.ainbfile).parts
-        window_label = ainb_location.ainbfile
         window_label = f"[{category}] {ainbfile}"
     else:
-        print(f"Opening {romfs}/{ainb_location.packfile}:/{ainb_location.ainbfile}")
         ainb = AINB(pack_util.load_file_from_pack(f"{romfs}/{ainb_location.packfile}", ainb_location.ainbfile))
-        category, ainbfile = pathlib.Path(ainb_location.ainbfile).parts
         window_label = f"[{category}] {ainbfile} [from {ainb_location.packfile}]"
 
     with dpg.window(label=window_label, width=800, height=600, pos=[600, 200]) as ainbwindow:
@@ -147,7 +144,7 @@ def add_ainb_nodes(ainb: AINB, ainb_location: AinbIndexCacheEntry, node_editor):
         deferred_link_calls += pending_links
 
     # All nodes+attributes exist, now we can link them
-    render_ainb_file_links_and_layout(req, deferred_link_calls)
+    render_ainb_file_links_and_layout(aj, ainb_tag_ns, deferred_link_calls)
 
 
 def render_ainb_node(req: RenderAinbNodeRequest) -> List[DeferredNodeLinkCall]:
@@ -192,7 +189,7 @@ def render_ainb_node(req: RenderAinbNodeRequest) -> List[DeferredNodeLinkCall]:
     return output_attr_links
 
 
-def render_ainb_file_links_and_layout(req: RenderAinbNodeRequest, link_calls: List[DeferredNodeLinkCall]):
+def render_ainb_file_links_and_layout(aj, ainb_tag_ns: str, link_calls: List[DeferredNodeLinkCall]):
     # Add links
     node_i_links = defaultdict(set)
     for link in link_calls:
@@ -212,7 +209,7 @@ def render_ainb_file_links_and_layout(req: RenderAinbNodeRequest, link_calls: Li
 
     # Determine each node's depth = x coord
     node_max_depth_map = defaultdict(int)  # commands start at 0
-    for command_i, command in enumerate(req.aj.get("Commands", [])):
+    for command_i, command in enumerate(aj.get("Commands", [])):
         node_i = command["Left Node Index"]
         if node_i == -1:
             continue
@@ -249,7 +246,7 @@ def render_ainb_file_links_and_layout(req: RenderAinbNodeRequest, link_calls: Li
     # Layout
     node_y_at_depth = defaultdict(int)
     for node_i, max_depth in node_max_depth_map.items():
-        node_tag = f"{req.ainb_tag_ns}/node{node_i}/Node"
+        node_tag = f"{ainb_tag_ns}/node{node_i}/Node"
         x = LAYOUT_X_SPACING * max_depth - entry_point_offset[0]
         y = LAYOUT_Y_SPACING * node_y_at_depth[max_depth] - entry_point_offset[1]
         node_y_at_depth[max_depth] += 1
@@ -276,7 +273,6 @@ def render_ainb_node_topmeta(req: RenderAinbNodeRequest) -> None:
 
                     #print(aref["Count"]) ...instance/link count? TODO
 
-                    # Try to resolve local pack -> global pack -> global Bare
                     dest_ainbfile = aref["File Category"] + '/' + aref["File Path"]
                     dest_location = scoped_ainbfile_lookup(AinbIndexCacheEntry(ainbfile=dest_ainbfile, packfile=req.ainb_location.packfile))
                     with dpg.group(horizontal=True):
@@ -452,7 +448,7 @@ def process_ainb_node_link__outputboolinputfloatinput_link(req: RenderAinbNodeRe
             remote_param_name = remote_param["Name"]
 
     my_attr_tag = f"{req.node_tag_ns}/Params/{local_param_direction}/{local_param_name}"
-    if remote_param_name is None and local_param_node_index > -1:
+    if remote_param_name is None and (local_param_node_index or 0) > -1:
         # XXX is this right
         print(f"No remote param found for {my_attr_tag} in {aj_link}")
     else:

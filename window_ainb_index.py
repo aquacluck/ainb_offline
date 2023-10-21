@@ -30,18 +30,25 @@ def open_ainb_index_window():
                 # dpg.add_tab_button(label="[max]", callback=dpg.maximize_viewport)  # works at runtime, fails at init?
                 # dpg.add_tab_button(label="wipe cache")
                 # filtering, optional abc group trees, etc would be nice
+
                 for cat in ("AI", "Logic", "Sequence"):
                     with dpg.tab(label=cat):
-                        with dpg.child_window(autosize_x=True, autosize_y=True):
-                            for ainb_location in ainb_cache["Bare"][cat].values():
-                                item = dpg.add_text(pathlib.Path(ainb_location.ainbfile).name, user_data=ainb_location)
-                                dpg.bind_item_handler_registry(item, open_ainb_handler)
+                        with dpg.child_window(tag=f"{ainb_index_window}/Root/{cat}", autosize_x=True, autosize_y=True):
+                            pass
+
+                cached_ainb_locations = ainb_cache["Pack"].get("Root", {})
+                for ainbfile, ainb_location in cached_ainb_locations.items():
+                    p = pathlib.Path(ainb_location.ainbfile)
+                    label = p.name
+                    cat, _ = p.parts
+                    item = dpg.add_text(label, user_data=ainb_location, parent=f"{ainb_index_window}/Root/{cat}")
+                    dpg.bind_item_handler_registry(item, open_ainb_handler)
 
                 with dpg.tab(label="Pack/AI.Global.Product.100"):
                     with dpg.child_window(autosize_x=True, autosize_y=True):
                         packfile = "Pack/AI.Global.Product.100.pack.zs"
-                        cached_ainb_locations = ainb_cache["Pack"].get(packfile, [])
-                        for ainb_location in cached_ainb_locations:
+                        cached_ainb_locations = ainb_cache["Pack"].get(packfile, {})
+                        for ainbfile, ainb_location in cached_ainb_locations.items():
                             label = pathlib.Path(ainb_location.ainbfile).name
                             item = dpg.add_text(label, user_data=ainb_location)
                             dpg.bind_item_handler_registry(item, open_ainb_handler)
@@ -50,14 +57,14 @@ def open_ainb_index_window():
                     with dpg.child_window(autosize_x=True, autosize_y=True):
                         for packfile in sorted(pathlib.Path(f"{romfs}/Pack/Actor").rglob("*.pack.zs")):
                             romfs_relative: str = os.path.join(*packfile.parts[-3:])
-                            cached_ainb_locations = ainb_cache["Pack"].get(romfs_relative, [])
+                            cached_ainb_locations = ainb_cache["Pack"].get(romfs_relative, {})
                             ainbcount = len(cached_ainb_locations)
                             if ainbcount == 0:
                                 continue
                             packname = pathlib.Path(romfs_relative).name.rsplit(".pack.zs", 1)[0]
                             label = f"{packname} [{ainbcount}]"
                             with dpg.tree_node(label=label, default_open=(ainbcount <= 4)):
-                                for ainb_location in cached_ainb_locations:
+                                for ainbfile, ainb_location in cached_ainb_locations.items():
                                     item = dpg.add_text(ainb_location.ainbfile, user_data=ainb_location, bullet=True)
                                     dpg.bind_item_handler_registry(item, open_ainb_handler)
 
