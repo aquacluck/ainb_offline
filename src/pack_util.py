@@ -1,9 +1,10 @@
 import functools
 from typing import *
+import io
 
-import zstandard as zstd
-from sarc import SARC
 import dearpygui.dearpygui as dpg
+import sarc
+import zstandard as zstd
 
 from app_types import *
 
@@ -11,7 +12,7 @@ from app_types import *
 @functools.lru_cache
 def get_zsdics(zsdic_filename: str) -> Dict[str, zstd.ZstdCompressionDict]:
     dctx = get_zstd_decompression_ctx(dict_data=None)
-    archive = SARC(dctx.decompress(open(zsdic_filename, "rb").read()))
+    archive = sarc.SARC(dctx.decompress(open(zsdic_filename, "rb").read()))
     return { fn: zstd.ZstdCompressionDict(archive.get_file_data(fn)) for fn in archive.list_files() }
 
 
@@ -27,21 +28,49 @@ def get_pack_decompression_ctx() -> zstd.ZstdDecompressor:
     return get_zstd_decompression_ctx(dict_data=pack_zsdic)
 
 
+@functools.lru_cache
+def get_pack_compression_ctx() -> zstd.ZstdDecompressor:
+    filename = dpg.get_value(AppConfigKeys.ZSDIC_FILENAME)
+    pack_zsdic = get_zsdics(filename)["pack.zsdic"]
+    return zstd.ZstdCompressor(level=10, dict_data=pack_zsdic)
+
+
+def save_file_to_pack(packfile: str, internalfile: str, internaldata: io.BytesIO):
+    # Make an updated sarc file from existing modfs
+    dctx = get_pack_decompression_ctx()
+    with open(packfile, "rb") as oldf:
+        archive = sarc.SARC(dctx.decompress(oldf.read()))
+    writer = sarc.make_writer_from_sarc(archive)
+    writer.delete_file(internalfile)
+    writer.add_file(internalfile, internaldata.getvalue())
+    updated_sarc = io.BytesIO()
+    writer.write(updated_sarc)
+
+    # Compress and save
+    cctx = get_pack_compression_ctx()
+    data = cctx.compress(updated_sarc.getvalue())
+    # TODO better sanity check?
+    if len(data) < 256:  # arbitrary
+        raise Exception(f"Refusing to overwrite {packfile} with only {len(data)}B compressed")
+    with open(packfile, "wb") as out:
+        out.write(data)
+
+
 def load_file_from_pack(packfile: str, internalfile: str) -> memoryview:
     dctx = get_pack_decompression_ctx()
-    archive = SARC(dctx.decompress(open(packfile, "rb").read()))
+    archive = sarc.SARC(dctx.decompress(open(packfile, "rb").read()))
     return archive.get_file_data(internalfile)
 
 
 def load_all_files_from_pack(packname: str) -> Dict[str, memoryview]:
     dctx = get_pack_decompression_ctx()
-    archive = SARC(dctx.decompress(open(packname, "rb").read()))
+    archive = sarc.SARC(dctx.decompress(open(packname, "rb").read()))
     return { fn: archive.get_file_data(fn) for fn in sorted(archive.list_files()) }
 
 
 def get_pack_internal_filenames(packname: str) -> List[str]:
     dctx = get_pack_decompression_ctx()
-    archive = SARC(dctx.decompress(open(packname, "rb").read()))
+    archive = sarc.SARC(dctx.decompress(open(packname, "rb").read()))
     return sorted(archive.list_files())
 
 # TODO natural sort + ignore case, they're too inconsistent

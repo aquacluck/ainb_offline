@@ -1,5 +1,8 @@
 import pathlib
 import dearpygui.dearpygui as dpg
+import io
+import os
+import shutil
 
 from app_types import *
 from dt_ainb.ainb import AINB
@@ -55,3 +58,30 @@ class EditContext:
                 return AINB(pack_util.load_file_from_pack(romfs_packfile, ainb_location.ainbfile))
 
             raise FileNotFoundError(f"Failed to resolve: {ainb_location.fullfile}")
+
+    def save_ainb(self, ainb_location: AinbIndexCacheEntry, dirty_ainb: AINB):
+        # AINB.output_dict is not intended to be modified, so other AINB members are stale
+        updated_ainb = AINB(dirty_ainb.output_dict, from_dict=True)
+
+        if ainb_location.packfile == "Root":
+            modfs_ainbfile = pathlib.Path(f"{self.modfs}/{ainb_location.ainbfile}")
+            modfs_ainbfile.parent.mkdir(parents=True, exist_ok=True)
+            with open(modfs_ainbfile, "wb") as outfile:
+                updated_ainb.ToBytes(updated_ainb, outfile)
+            print(f"Saved {ainb_location.fullfile}")
+            return
+        else:
+            modfs_packfile = pathlib.Path(f"{self.modfs}/{ainb_location.packfile}")
+            if not modfs_packfile.exists():
+                # Copy from romfs
+                modfs_packfile.parent.mkdir(parents=True, exist_ok=True)
+                romfs_packfile = pathlib.Path(f"{self.romfs}/{ainb_location.packfile}")
+                shutil.copy(romfs_packfile, modfs_packfile)
+                os.chmod(modfs_packfile, 0o664)  # PROTIP: Make your romfs read only
+
+            # Overwrite file and save updated pack
+            data = io.BytesIO()
+            updated_ainb.ToBytes(updated_ainb, data)
+            pack_util.save_file_to_pack(modfs_packfile, ainb_location.ainbfile, data)
+            print(f"Saved {ainb_location.fullfile}")
+            return

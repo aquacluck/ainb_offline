@@ -53,14 +53,13 @@ class RenderAinbNodeRequest:
 
 
 def open_ainb_graph_window(s, a, ainb_location: AinbIndexCacheEntry):
-    print(f"Opening {ainb_location.packfile}:/{ainb_location.ainbfile}")
-    category, ainbfile = pathlib.Path(ainb_location.ainbfile).parts
     ectx = EditContext.get()
-
     if window_tag := ectx.get_ainb_window(ainb_location):
         dpg.focus_item(window_tag)
         return
 
+    print(f"Opening {ainb_location.fullfile}")
+    category, ainbfile = pathlib.Path(ainb_location.ainbfile).parts
     ainb = ectx.load_ainb(ainb_location)
 
     if ainb_location.packfile == "Root":
@@ -73,6 +72,9 @@ def open_ainb_graph_window(s, a, ainb_location: AinbIndexCacheEntry):
 
     with dpg.window(label=window_label, width=800, height=600, pos=[600, 200], on_close=close) as ainb_window:
         ectx.register_ainb_window(ainb_location, ainb_window)
+
+        def save_ainb():
+            ectx.save_ainb(ainb_location, ainb)
 
         def redump_json():
             # Replace json textbox with working ainb (possibly dirty)
@@ -130,6 +132,7 @@ def open_ainb_graph_window(s, a, ainb_location: AinbIndexCacheEntry):
                     dpg.add_input_text(tag=json_textbox, default_value="any slow dumps?", width=-1, height=-1, multiline=True, tab_input=True, readonly=False)
                     redump_json()
 
+            dpg.add_tab_button(label="save", callback=save_ainb)
 
     return ainb_window
 
