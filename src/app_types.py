@@ -14,6 +14,7 @@ class ConstDottableDict(dict):  # allows access by `self.foo` if "foo" in self
 AppConfigKeys = ConstDottableStringSet({
     "AINB_FILE_INDEX_FILE",
     "APPVAR_PATH",
+    "MODFS_PATH",
     "ROMFS_PATH",
     "ZSDIC_FILENAME",
 })

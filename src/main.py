@@ -1,3 +1,4 @@
+import os
 import sys
 from typing import *
 
@@ -13,11 +14,16 @@ def main():
 
     # const globals+config
     with dpg.value_registry():
-        dpg.add_string_value(tag=AppConfigKeys.ROMFS_PATH, default_value="romfs")
+        _romfs = os.environ.get("ROMFS") or "romfs"
+        dpg.add_string_value(tag=AppConfigKeys.ROMFS_PATH, default_value=_romfs)
         dpg.add_string_value(tag=AppConfigKeys.ZSDIC_FILENAME, default_value=f"{dpg.get_value(AppConfigKeys.ROMFS_PATH)}/Pack/ZsDic.pack.zs")
 
-        dpg.add_string_value(tag=AppConfigKeys.APPVAR_PATH, default_value="var")
+        _var = os.environ.get("APPVAR") or "var"
+        dpg.add_string_value(tag=AppConfigKeys.APPVAR_PATH, default_value=_var)
         dpg.add_string_value(tag=AppConfigKeys.AINB_FILE_INDEX_FILE, default_value=f"{dpg.get_value(AppConfigKeys.APPVAR_PATH)}/cache/ainb_file_index.json")
+
+        _modfs = os.environ.get("OUTPUT_ROMFS") or "var/modfs"
+        dpg.add_string_value(tag=AppConfigKeys.MODFS_PATH, default_value=_modfs)
 
     with dpg.font_registry():
         default_font = dpg.add_font("static/fonts/SourceCodePro-Regular.otf", 16)
