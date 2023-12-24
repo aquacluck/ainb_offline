@@ -7,5 +7,5 @@ pip install dearpygui mmh3 pyyaml byml sarc zstandard
 python main.py romfs/Sequence/AutoPlacement.root.ainb
 ```
 
-dt_ainb adapted from https://github.com/dt-12345/ainb, other than relative imports any edits are mostly pointless
-
+- Special thanks to dt12345 for their ainb parser+serializer: https://github.com/dt-12345/ainb
+- Special thanks to Watertoon for their help reversing the format

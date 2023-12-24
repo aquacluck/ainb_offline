@@ -2,7 +2,10 @@ from .exb import EXB
 from .utils import *
 from enum import Enum
 import json
-import mmh3
+try:
+    import mmh3
+except ImportError:
+    raise ImportError("DID YOU EVEN TRY TO READ THE INSTRUCTIONS BEFORE YOU DID THIS? GO BACK TO THE GITHUB README AND LEARN TO READ :P")
 
 # Enums and stuff
 class Node_Type(Enum):
@@ -34,6 +37,7 @@ class Node_Type(Enum):
     Element_StateEnd               = 400
     Element_SplitTiming            = 500
 
+# User-Defined stores pointers to the corresponding structure/class
 type_standard = ["int", "bool", "float", "string", "vec3f", "userdefined"] # Data type order
 
 type_global = ["string", "int", "float", "bool", "vec3f", "userdefined"] # Data type order (global parameters)
@@ -43,18 +47,20 @@ file_category = {"AI" : 0, "Logic" : 1, "Sequence" : 2}
 class AINB:
     def __init__(self, data, from_dict=False):
         self.max_global_index = 0
+        self.output_dict = {}
 
         if not from_dict:
             self.stream = ReadStream(data)
 
             self.functions = {}
+            self.exb_instances = 0 # Track total number of EXB function calls
 
             # Header (0x74 Bytes)
             self.magic = self.stream.read(4).decode('utf-8')
             if self.magic != "AIB ": # Must be .ainb file with correct magic
                 raise Exception(f"Invalid magic {self.magic} - expected 'AIB '")
             self.version = self.stream.read_u32()
-            if self.version not in [0x404, 0x407]: # Must be version 4.4 or 4.7
+            if self.version not in [0x404, 0x407]: # Must be version 4.4 or 4.7 (4.4 isn't actually supported though)
                 raise Exception(f"Invalid version {hex(self.version)} - expected 0x404 (S3/NSS) or 0x407 (TotK)")
             
             self._filename_offset = self.stream.read_u32()
@@ -93,6 +99,13 @@ class AINB:
             self.x6c_section = self.stream.read_u32() # Seemingly unused
             self.file_hash_offset = self.stream.read_u32() # Hashed data is still a mystery, maybe CRC32 hash of file data?
 
+            self.output_dict["Info"] = {
+                "Magic" : self.magic, # Don't actually need to store this bc it's always the same
+                "Version" : hex(self.version), # Don't actually need to store this
+                "Filename" : self.filename,
+                "File Category" : self.file_category
+            }
+
             # Commands
             assert self.stream.tell() == 116, "Something went wrong" # Just to make sure we're at the right location
             self.commands = []
@@ -100,6 +113,8 @@ class AINB:
                 self.commands.append(self.Command())
             command_end = self.stream.tell()
             
+            # We don't parse the nodes yet because they depend on the other sections
+
             # Global Parameters (copied most from here on down from old code so hopefully it works fine)
             self.stream.seek(self.global_parameter_offset)
             self.global_params = self.GlobalParameters()
@@ -118,7 +133,7 @@ class AINB:
             for i in range(len(self.immediate_offsets)):
                 self.stream.seek(self.immediate_offsets[i])
                 self.immediate_parameters[type_standard[i]] = []
-                if i < 5:
+                if i < 5: # Pointer parameters end at the start of the next section
                     while self.stream.tell() < self.immediate_offsets[i+1]:
                         self.immediate_parameters[type_standard[i]].append(self.ImmediateParameter(type_standard[i]))
                 else:
@@ -181,7 +196,7 @@ class AINB:
             # Resident Update Array
             self.stream.seek(self.resident_update_offset)
             self.resident_update_array = []
-            if self.resident_update_offset != self.precondition_offset:
+            if self.resident_update_offset != self.precondition_offset: # Section doesn't exist if they're equal
                 offsets = [self.stream.read_u32()]
                 while self.stream.tell() < offsets[0]:
                     offsets.append(self.stream.read_u32())
@@ -198,7 +213,7 @@ class AINB:
                 end = self.embed_ainb_offset
             while self.stream.tell() < end:
                 self.precondition_nodes.append(self.stream.read_u16())
-                self.stream.skip(2)
+                self.stream.read_u16() # Unsure of the purpose of these two bytes
 
             # Entry Strings
             self.stream.seek(self.entry_string_offset)
@@ -206,46 +221,6 @@ class AINB:
             self.entry_strings = []
             for i in range(count):
                 self.entry_strings.append(self.EntryStringEntry())
-
-            # Nodes - initialize all nodes and assign corresponding parameters
-            self.stream.seek(command_end)
-            self.nodes = []
-            for i in range(self.node_count):
-                self.nodes.append(self.Node())
-            if self.nodes:
-                # Match Entry Strings (purpose still unknown)
-                for entry in self.entry_strings:
-                    self.nodes[entry["Node Index"]]["Entry String"] = entry
-                    del self.nodes[entry["Node Index"]]["Entry String"]["Node Index"]
-
-            # Child Replacement
-            self.stream.seek(self.child_replacement_offset)
-            self.is_replaced = self.stream.read_u8() # Set at runtime, just ignore
-            self.stream.skip(1)
-            count = self.stream.read_u16()
-            node_count = self.stream.read_s16() # = Node count - node removal count - 2 * replacement node count
-            attachment_count = self.stream.read_s16() # = Attachment count - attachment removal coutn
-            self.replacements = []
-            for i in range(count):
-                self.replacements.append(self.ChildReplace())
-            if self.replacements:
-                for replacement in self.replacements: # Don't actually replace the node, just leave a note
-                    if replacement["Type"] == 0:
-                        i = 0
-                        for type in self.nodes[replacement["Node Index"]]["Linked Nodes"]:
-                            for node in self.nodes[replacement["Node Index"]]["Linked Nodes"][type]:
-                                i += 0
-                                if i == replacement["Child Index"]:
-                                    node["Is Removed at Runtime"] = True
-                    if replacement["Type"] == 1:
-                        i = 0
-                        for type in self.nodes[replacement["Node Index"]]["Linked Nodes"]:
-                            for node in self.nodes[replacement["Node Index"]]["Linked Nodes"][type]:
-                                if i == replacement["Child Index"]:
-                                    node["Replacement Node Index"] = replacement["Replacement Index"]
-                                i += 1
-                    if replacement["Type"] == 2:
-                        self.nodes[replacement["Node Index"]]["Attachments"][replacement["Attachment Index"]]["Is Removed at Runtime"] = True
 
             # Embedded AINB
             self.stream.seek(self.embed_ainb_offset)
@@ -276,12 +251,55 @@ class AINB:
                 i = len(self.functions)
                 self.exb.exb_section["Commands"] = [command for command in self.exb.exb_section["Commands"] if command not in list(self.functions.values())]
                 for command in self.exb.exb_section["Commands"]:
-                    self.functions[i] == command
+                    self.functions[i] = command
                     i += 1
                 if not self.exb.exb_section["Commands"]:
                     del self.exb.exb_section["Commands"]
 
-            del self.stream
+            # Nodes - initialize all nodes and assign corresponding parameters
+            self.stream.seek(command_end)
+            self.nodes = []
+            for i in range(self.node_count):
+                self.nodes.append(self.Node())
+            if self.nodes:
+                # Match Entry Strings (purpose still unknown)
+                for entry in self.entry_strings:
+                    self.nodes[entry["Node Index"]]["Entry String"] = entry
+                    del self.nodes[entry["Node Index"]]["Entry String"]["Node Index"]
+
+            """
+            Child Replacement
+            These replacements/removals happen upon file initialization (mostly to remove debug nodes)
+            We keep the data bc there's no way to recover the replacement table otherwise
+            """
+            self.stream.seek(self.child_replacement_offset)
+            self.is_replaced = self.stream.read_u8() # Set at runtime, just ignore
+            self.stream.skip(1)
+            count = self.stream.read_u16()
+            node_count = self.stream.read_s16() # = Node count - node removal count - 2 * replacement node count
+            attachment_count = self.stream.read_s16() # = Attachment count - attachment removal coutn
+            self.replacements = []
+            for i in range(count):
+                self.replacements.append(self.ChildReplace())
+            if self.replacements:
+                for replacement in self.replacements: # Don't actually replace the node, just leave a note
+                    if replacement["Type"] == 0:
+                        i = 0
+                        for type in self.nodes[replacement["Node Index"]]["Linked Nodes"]:
+                            for node in self.nodes[replacement["Node Index"]]["Linked Nodes"][type]:
+                                i += 0
+                                if i == replacement["Child Index"]:
+                                    node["Is Removed at Runtime"] = True
+                    if replacement["Type"] == 1:
+                        i = 0
+                        for type in self.nodes[replacement["Node Index"]]["Linked Nodes"]:
+                            for node in self.nodes[replacement["Node Index"]]["Linked Nodes"][type]:
+                                if i == replacement["Child Index"]:
+                                    node["Replacement Node Index"] = replacement["Replacement Index"]
+                                i += 1
+                    if replacement["Type"] == 2:
+                        self.nodes[replacement["Node Index"]]["Attachments"][replacement["Attachment Index"]]["Is Removed at Runtime"] = True
+            
         else:
             self.magic = data["Info"]["Magic"]
             self.version = int(data["Info"]["Version"], 16)
@@ -289,11 +307,13 @@ class AINB:
             self.file_category = data["Info"]["File Category"]
 
             # Defaults
-            self.commands, self.ainb_array, self.nodes = [], [], []
+            self.commands, self.ainb_array, self.nodes, self.attachment_parameters = [], [], [], []
             self.global_params, self.exb, self.file_hashes = {}, {}, {}
             
             self.functions = {}
+            self.exb_instances = 0
 
+            # Get all EXB functions in file
             if "Nodes" in data:
                 self.nodes = data["Nodes"]
                 for node in self.nodes:
@@ -301,37 +321,45 @@ class AINB:
                         for type in node["Immediate Parameters"]:
                             for entry in node["Immediate Parameters"][type]:
                                 if "Function" in entry:
-                                    self.functions[entry["Global/EXB Index"]] = entry["Function"]
+                                    self.functions[entry["EXB Index"]] = entry["Function"]
+                                    self.exb_instances += 1
                                 if "Sources" in entry:
                                     for parameter in entry["Sources"]:
                                         if "Function" in parameter:
-                                            self.functions[parameter["Global/EXB Index"]] = parameter["Function"]
+                                            self.functions[parameter["EXB Index"]] = parameter["Function"]
+                                            self.exb_instances += 1
                     if "Input Parameters" in node:
                         for type in node["Input Parameters"]:
                             for entry in node["Input Parameters"][type]:
                                 if "Function" in entry:
-                                    self.functions[entry["Global/EXB Index"]] = entry["Function"]
+                                    self.functions[entry["EXB Index"]] = entry["Function"]
+                                    self.exb_instances += 1
                                 if "Sources" in entry:
                                     for parameter in entry["Sources"]:
                                         if "Function" in parameter:
-                                            self.functions[parameter["Global/EXB Index"]] = parameter["Function"]
+                                            self.functions[parameter["EXB Index"]] = parameter["Function"]
+                                            self.exb_instances += 1
                     if "Attachments" in node:
-                        if "Parameters" in node["Attachments"]:
-                            for type in node["Attachments"]["Parameters"]:
-                                for entry in node["Attachments"]["Parameters"][type]:
-                                    if "Function" in entry:
-                                        self.functions[entry["Global/EXB Index"]] = entry["Function"]
-                                    if "Sources" in entry:
-                                        for parameter in entry["Sources"]:
-                                            if "Function" in parameter:
-                                                self.functions[parameter["Global/EXB Index"]] = parameter["Function"]
+                        for attachment in node["Attachments"]:
+                            self.attachment_parameters.append(attachment)
+                            if "Parameters" in attachment:
+                                for type in attachment["Parameters"]:
+                                    for entry in attachment["Parameters"][type]:
+                                        if "Function" in entry:
+                                            self.functions[entry["EXB Index"]] = entry["Function"]
+                                            self.exb_instances += 1
+                                        if "Sources" in entry:
+                                            for parameter in entry["Sources"]:
+                                                if "Function" in parameter:
+                                                    self.functions[parameter["EXB Index"]] = parameter["Function"]
+                                                    self.exb_instances += 1
 
             if "Commands" in data:
                 self.commands = data["Commands"]
             if "Global Parameters" in data:
                 self.global_params = data["Global Parameters"]
-            if "EXB Section" in data:
-                self.exb = EXB(data["EXB Section"], self.functions, from_dict)
+            if self.functions:
+                self.exb = EXB(None, self.functions, from_dict)
                 i = len(self.functions)
                 self.exb.exb_section["Commands"] = [command for command in self.exb.exb_section["Commands"] if command not in list(self.functions.values())]
                 for command in self.exb.exb_section["Commands"]:
@@ -343,27 +371,22 @@ class AINB:
                 self.file_hashes = data["File Hashes"]
             if "Embedded AINB Files" in data:
                 self.ainb_array = data["Embedded AINB Files"]
-
-        output = {}
-        output["Info"] = {
+        
+        self.output_dict["Info"] = {
                 "Magic" : self.magic,
                 "Version" : hex(self.version),
                 "Filename" : self.filename,
                 "File Category" : self.file_category
             }
         if self.commands:
-            output["Commands"] = self.commands
+            self.output_dict["Commands"] = self.commands
         if self.global_params:
-            output["Global Parameters"] = self.global_params
-        if self.exb:
-            output["EXB Section"] = self.exb.exb_section
+            self.output_dict["Global Parameters"] = self.global_params
         if self.ainb_array:
-            output["Embedded AINB Files"] = self.ainb_array
+            self.output_dict["Embedded AINB Files"] = self.ainb_array
         if self.nodes:
-            output["Nodes"] = self.nodes
-        output["File Hashes"] = self.file_hashes
-        self.output_dict = output
-
+            self.output_dict["Nodes"] = self.nodes
+        self.output_dict["File Hashes"] = self.file_hashes
 
     # File Structs
     def GUID(self) -> str:
@@ -383,7 +406,7 @@ class AINB:
         entry["Count"] = self.stream.read_u16()
         entry["Index"] = self.stream.read_u16()
         entry["Offset"] = self.stream.read_u16()
-        self.stream.skip(2)
+        self.stream.read_u16() # Unsure of the purpose of these two bytes
         return entry
 
     def GlobalEntry(self):
@@ -396,7 +419,7 @@ class AINB:
                 self.max_global_index = entry["Index"]
         name_offset = bitfield & 0x3FFFFF
         entry["Name"] = self.string_pool.read_string(name_offset)
-        entry["Null String"] = self.string_pool.read_string(self.stream.read_u32())
+        entry["Notes"] = self.string_pool.read_string(self.stream.read_u32())
         return entry
     
     def GlobalValue(self, type):
@@ -411,7 +434,7 @@ class AINB:
         if type == "vec3f":
             value = [self.stream.read_f32(), self.stream.read_f32(), self.stream.read_f32()]
         if type == "userdefined":
-            value = None
+            value = None # Default values are not stored
         return value
 
     def GlobalFileRef(self):
@@ -461,7 +484,7 @@ class AINB:
         entry["Name"] = self.string_pool.read_string(self.stream.read_u32())
         if type == "userdefined":
             entry["Class"] = self.string_pool.read_string(self.stream.read_u32())
-        entry["Global/EXB Index"] = self.stream.read_u16()
+        index = self.stream.read_u16()
         flags = self.stream.read_u16()
         if flags:
             entry["Flags"] = []
@@ -469,34 +492,35 @@ class AINB:
                 entry["Flags"].append("Pulse Thread Local Storage")
             if flags & 0x100:
                 entry["Flags"].append("Set Pointer Flag Bit Zero")
-            entry["Flags"].append(flags)
+            if (flags & 0xc200) == 0xc200:
+                entry["EXB Index"] = index
+                entry["Function"] = self.exb.commands[entry["EXB Index"]]
+                self.functions[entry["EXB Index"]] = entry["Function"]
+            elif flags & 0x8000:
+                entry["Global Parameters Index"] = index
+            if not(entry["Flags"]):
+                del entry["Flags"]
+        # User-Defined types don't have values stored
         if type == "string":
             entry["Value"] = self.string_pool.read_string(self.stream.read_u32())
         if type == "int":
-            entry["Value"] = self.stream.read_u32()
+            entry["Value"] = self.stream.read_s32()
         if type == "float":
             entry["Value"] = self.stream.read_f32()
         if type == "bool":
             entry["Value"] = bool(self.stream.read_u32())
         if type == "vec3f":
             entry["Value"] = [self.stream.read_f32(), self.stream.read_f32(), self.stream.read_f32()]
-        if "Flags" in entry:
-            if "0xc200" in [hex(i) for i in entry["Flags"] if isinstance(i, int)]:
-                entry["Function"] = self.exb.commands[entry["Global/EXB Index"]]
-                self.functions[entry["Global/EXB Index"]] = entry["Function"]
-        else:
-            if entry["Global/EXB Index"] == 0:
-                del entry["Global/EXB Index"]
         return entry
     
     def AttachmentEntry(self):
         entry = {}
         entry["Name"] = self.string_pool.read_string(self.stream.read_u32())
         entry["Offset"] = self.stream.read_u32()
-        entry["EXB Field Count"] = self.stream.read_u16()
-        entry["EXB Value Size"] = self.stream.read_u16()
+        entry["EXB Function Count"] = self.stream.read_u16()
+        entry["EXB Input/Output Size"] = self.stream.read_u16()
         entry["Name Hash"] = hex(self.stream.read_u32())
-        del entry["Name Hash"]
+        del entry["Name Hash"], entry["EXB Function Count"], entry["EXB Input/Output Size"]
         return entry
     
     def AttachmentParameters(self):
@@ -532,7 +556,7 @@ class AINB:
         if entry["Node Index"] <= -100 and entry["Node Index"] >= -8192:
             entry["Multi Index"] = -100 - entry["Node Index"]
             entry["Multi Count"] = entry["Parameter Index"]
-        entry["Global/EXB Index"] = self.stream.read_u16()
+        index = self.stream.read_u16()
         flags = self.stream.read_u16()
         if flags:
             entry["Flags"] = []
@@ -540,11 +564,18 @@ class AINB:
                 entry["Flags"].append("Pulse Thread Local Storage")
             if flags & 0x100:
                 entry["Flags"].append("Set Pointer Flag Bit Zero")
-            entry["Flags"].append(flags)
+            if (flags & 0xc200) == 0xc200:
+                entry["EXB Index"] = index
+                entry["Function"] = self.exb.commands[entry["EXB Index"]]
+                self.functions[entry["EXB Index"]] = entry["Function"]
+            elif flags & 0x8000:
+                entry["Global Parameters Index"] = index
+            if not(entry["Flags"]):
+                del entry["Flags"]
         if type == "string":
             entry["Value"] = self.string_pool.read_string(self.stream.read_u32())
         if type == "int":
-            entry["Value"] = self.stream.read_u32()
+            entry["Value"] = self.stream.read_s32()
         if type == "float":
             entry["Value"] = self.stream.read_f32()
         if type == "bool":
@@ -553,13 +584,6 @@ class AINB:
             entry["Value"] = [self.stream.read_f32(), self.stream.read_f32(), self.stream.read_f32()]
         if type == "userdefined":
             entry["Value"] = self.stream.read_u32()
-        if "Flags" in entry:
-            if "0xc200" in [hex(i) for i in entry["Flags"] if isinstance(i, int)]:
-                entry["Function"] = self.exb.commands[entry["Global/EXB Index"]]
-                self.functions[entry["Global/EXB Index"]] = entry["Function"]
-        else:
-            if entry["Global/EXB Index"] == 0:
-                del entry["Global/EXB Index"]
         return entry
     
     def OutputEntry(self, type):
@@ -577,7 +601,7 @@ class AINB:
         entry = {}
         entry["Node Index"] = self.stream.read_u16()
         entry["Parameter Index"] = self.stream.read_u16()
-        entry["Global/EXB Index"] = self.stream.read_u16()
+        index = self.stream.read_u16()
         flags = self.stream.read_u16()
         if flags:
             entry["Flags"] = []
@@ -585,13 +609,14 @@ class AINB:
                 entry["Flags"].append("Pulse Thread Local Storage")
             if flags & 0x100:
                 entry["Flags"].append("Set Pointer Flag Bit Zero")
-            entry["Flags"].append(flags)
-            if "0xc200" in [hex(i) for i in entry["Flags"] if isinstance(i, int)]:
-                entry["Function"] = self.exb.commands[entry["Global/EXB Index"]]
-                self.functions[entry["Global/EXB Index"]] = entry["Function"]
-        else:
-            if entry["Global/EXB Index"] == 0:
-                del entry["Global/EXB Index"]
+            if (flags & 0xc200) == 0xc200:
+                entry["EXB Index"] = index
+                entry["Function"] = self.exb.commands[entry["EXB Index"]]
+                self.functions[entry["EXB Index"]] = entry["Function"]
+            elif flags & 0x8000:
+                entry["Global Parameters Index"] = index
+            if not(entry["Flags"]):
+                del entry["Flags"]
         return entry
     
     def ResidentEntry(self):
@@ -616,6 +641,7 @@ class AINB:
     
     def Node(self):
         entry = {}
+        exb_count = 0
         entry["Node Type"] = Node_Type(self.stream.read_u16()).name
         entry["Node Index"] = self.stream.read_u16()
         entry["Attachment Count"] = self.stream.read_u16()
@@ -628,28 +654,40 @@ class AINB:
                 entry["Flags"].append("Is External AINB")
             if flags & 0b100:
                 entry["Flags"].append("Is Resident Node")
-        self.stream.skip(1)
+        self.stream.read_u8()
         entry["Name"] = self.string_pool.read_string(self.stream.read_u32())
         entry["Name Hash"] = hex(self.stream.read_u32())
-        self.stream.skip(4)
+        self.stream.read_u32()
         entry["Parameters Offset"] = self.stream.read_u32()
-        entry["EXB Field Count"] = self.stream.read_u16()
-        entry["EXB Value Size"] = self.stream.read_u16()
+        entry["EXB Function Count"] = self.stream.read_u16()
+        entry["EXB Input/Output Size"] = self.stream.read_u16()
+        del entry["EXB Function Count"], entry["EXB Input/Output Size"]
         entry["Multi-Param Count"] = self.stream.read_u16() # Unnecessary as node parameters will already be paired
-        self.stream.skip(2)
+        self.stream.read_u16()
         entry["Base Attachment Index"] = self.stream.read_u32()
         entry["Base Precondition Node"] = self.stream.read_u16()
         entry["Precondition Count"] = self.stream.read_u16()
-        self.stream.skip(4)
+        self.stream.read_u32()
         entry["GUID"] = self.GUID()
         if entry["Precondition Count"] > 0:
             entry["Precondition Nodes"] = []
             for i in range(entry["Precondition Count"]):
                 entry["Precondition Nodes"].append(self.precondition_nodes[entry["Base Precondition Node"] + i])
+        # This is all to get the function count and I know it could be way more efficient but it's late and I can't think
         if entry["Attachment Count"] > 0:
             entry["Attachments"] = []
             for i in range(entry["Attachment Count"]):
                 entry["Attachments"].append(self.attachment_parameters[self.attachment_array[entry["Base Attachment Index"] + i]])
+            for attachment in entry["Attachments"]:
+                if "Parameters" in attachment:
+                    for type in attachment["Parameters"]:
+                        for entry1 in type:
+                            if "Function" in entry1:
+                                exb_count += 1
+                            if "Sources" in entry1:
+                                for parameter in entry1["Sources"]:
+                                    if "Function" in parameter:
+                                        exb_count += 1
         # We don't need these anymore actually
         del entry["Attachment Count"], entry["Base Attachment Index"], entry["Multi-Param Count"], entry["Precondition Count"], entry["Name Hash"]
         jumpback = self.stream.tell()
@@ -663,6 +701,13 @@ class AINB:
             immediate_parameters[type_standard[i]] = []
             for j in range(count):
                 immediate_parameters[type_standard[i]].append(self.immediate_parameters[type_standard[i]][index + j])
+                # Unsure if these can even have EXB functions
+                if "Function" in self.immediate_parameters[type_standard[i]][index + j]:
+                    exb_count += 1
+                if "Sources" in self.immediate_parameters[type_standard[i]][index + j]:
+                    for parameter in self.immediate_parameters[type_standard[i]][index + j]["Sources"]:
+                        if "Function" in parameter:
+                            exb_count += 1
             if not(immediate_parameters[type_standard[i]]):
                 del immediate_parameters[type_standard[i]]
         if immediate_parameters:
@@ -675,6 +720,12 @@ class AINB:
             input_parameters[type_standard[i]] = []
             for j in range(count):
                 input_parameters[type_standard[i]].append(self.input_parameters[type_standard[i]][index + j])
+                if "Function" in self.input_parameters[type_standard[i]][index + j]:
+                    exb_count += 1
+                if "Sources" in self.input_parameters[type_standard[i]][index + j]:
+                    for parameter in self.input_parameters[type_standard[i]][index + j]["Sources"]:
+                        if "Function" in parameter:
+                            exb_count += 1
             if not(input_parameters[type_standard[i]]):
                 del input_parameters[type_standard[i]]
             index = self.stream.read_u32()
@@ -688,7 +739,8 @@ class AINB:
             entry["Input Parameters"] = input_parameters
         if output_parameters:
             entry["Output Parameters"] = output_parameters
-        # Child Nodes (selectors may need some more work)
+        self.exb_instances += exb_count
+        # Child Nodes
         counts = []
         indices = []
         for i in range(10):
@@ -726,10 +778,10 @@ class AINB:
                         else:
                             is_end = bool(offsets.index(offset) == len(offsets) - 1)
                             if entry["Node Type"] == "Element_S32Selector":
-                                index = self.stream.read_u16()
+                                index = self.stream.read_s16()
                                 flag = self.stream.read_u16() >> 15 # Is valid index
                                 if flag:
-                                    entry["Input"] = self.global_params["int"][index]
+                                    entry["Global Parameters Index"] = index
                                 if is_end:
                                     info["Condition"] = "Default"
                                 else:
@@ -738,10 +790,10 @@ class AINB:
                                 index = self.stream.read_u16()
                                 flag = self.stream.read_u16() >> 15 # Is valid index
                                 if flag:
-                                    entry["Input"] = self.global_params["float"][index]
+                                    entry["Global Parameters Index"] = index
                                 if not(is_end):
                                     info["Condition Min"] = self.stream.read_f32()
-                                    self.stream.skip(4)
+                                    self.stream.read_u32()
                                     info["Condition Max"] = self.stream.read_f32()
                                 else:
                                     info[self.string_pool.read_string(self.stream.read_u32())] = "Default"
@@ -749,7 +801,7 @@ class AINB:
                                 index = self.stream.read_u16()
                                 flag = self.stream.read_u16() >> 15 # Is valid index
                                 if flag:
-                                    entry["Input"] = self.global_params["string"][index]
+                                    entry["Global Parameters Index"] = index
                                 if is_end:
                                     info[self.string_pool.read_string(self.stream.read_u32())] = "Default"
                                 else:
@@ -770,17 +822,17 @@ class AINB:
     def ChildReplace(self):
         entry = {}
         entry["Type"] = self.stream.read_u8()
-        self.stream.skip(1)
+        self.stream.read_u8()
         entry["Node Index"] = self.stream.read_u16()
         if entry["Type"] in [0, 1]:
             entry["Child Index"] = self.stream.read_u16()
             if entry["Type"] == 1:
                 entry["Replacement Index"] = self.stream.read_u16()
             else:
-                self.stream.skip(2)
+                self.stream.read_u16()
         if entry["Type"] == 2:
             entry["Attachment Index"] = self.stream.read_u16()
-            self.stream.skip(2)
+            self.stream.read_u16()
         return entry
 
     def ToBytes(self, ainb, dest): # ainb is an AINB object
@@ -839,15 +891,63 @@ class AINB:
         multi_counts = {}
         attach_counts = {}
         precon_counts = {}
+        exb_info = []
+        attach_exb_info = []
 
         # Nodes
         if self.nodes:
             for node in self.nodes:
+                exb_count = 0
+                exb_size = 0
                 buffer.add_string(node["Name"])
                 if "Attachments" in node:
                     i = 0
                     for attachment in node["Attachments"]:
+                        attach_exb_count = 0
+                        attach_exb_size = 0
+                        if "Parameters" in attachment:
+                            for type in attachment["Parameters"]:
+                                for entry in attachment["Parameters"][type]:
+                                    if "Function" in entry:
+                                        exb_count += 1
+                                        attach_exb_count += 1
+                                        size = 0
+                                        for instruction in entry["Function"]["Instructions"]:
+                                            if "Data Type" in instruction:
+                                                if instruction["Data Type"] == "vec3f":
+                                                    type_size = 12
+                                                else:
+                                                    type_size = 4
+                                            if "LHS Source" in instruction or "RHS Source" in instruction:
+                                                if instruction["LHS Source"] == "Output":
+                                                    size = max(size, instruction["LHS Index/Value"] + type_size)
+                                                if instruction["RHS Source"] == "Input":
+                                                    size = max(size, instruction["RHS Index/Value"] + type_size)
+                                        exb_size += size
+                                        attach_exb_size += size
+                                    if "Sources" in entry:
+                                        for parameter in entry["Sources"]:
+                                            exb_count += 1
+                                            attach_exb_count += 1
+                                            size = 0
+                                            for instruction in parameter["Function"]["Instructions"]:
+                                                if "Data Type" in instruction:
+                                                    if instruction["Data Type"] == "vec3f":
+                                                        type_size = 12
+                                                    else:
+                                                        type_size = 4
+                                                if "LHS Source" in instruction or "RHS Source" in instruction:
+                                                    if instruction["LHS Source"] == "Output":
+                                                        size = max(size, instruction["LHS Index/Value"] + type_size)
+                                                    if instruction["RHS Source"] == "Input":
+                                                        size = max(size, instruction["RHS Index/Value"] + type_size)
+                                            exb_size += size
+                                            attach_exb_size += size
                         if attachment not in attachments:
+                            if attach_exb_count or attach_exb_size:
+                                attach_exb_info.append((attach_exb_count, attach_exb_size))
+                            else:
+                                attach_exb_info.append((0, 0))
                             attachments.append(attachment)
                         if "Is Removed at Runtime" in attachment:
                             replacements.append((2, node["Node Index"], i))
@@ -860,9 +960,39 @@ class AINB:
                 if "Immediate Parameters" in node:
                     for type in node["Immediate Parameters"]:
                         for entry in node["Immediate Parameters"][type]:
+                            if "Function" in entry:
+                                exb_count += 1
+                                size = 0
+                                for instruction in entry["Function"]["Instructions"]:
+                                    if "Data Type" in instruction:
+                                        if instruction["Data Type"] == "vec3f":
+                                            type_size = 12
+                                        else:
+                                            type_size = 4
+                                    if "LHS Source" in instruction or "RHS Source" in instruction:
+                                        if instruction["LHS Source"] == "Output":
+                                            size = max(size, instruction["LHS Index/Value"] + type_size)
+                                        if instruction["RHS Source"] == "Input":
+                                            size = max(size, instruction["RHS Index/Value"] + type_size)
+                                exb_size += size
                             if "Sources" in entry:
                                 for parameter in entry["Sources"]:
                                     multis.append(parameter)
+                                    if "Function" in parameter:
+                                        exb_count += 1
+                                        size = 0
+                                        for instruction in parameter["Function"]["Instructions"]:
+                                            if "Data Type" in instruction:
+                                                if instruction["Data Type"] == "vec3f":
+                                                    type_size = 12
+                                                else:
+                                                    type_size = 4
+                                            if "LHS Source" in instruction or "RHS Source" in instruction:
+                                                if instruction["LHS Source"] == "Output":
+                                                    size = max(size, instruction["LHS Index/Value"] + type_size)
+                                                if instruction["RHS Source"] == "Input":
+                                                    size = max(size, instruction["RHS Index/Value"] + type_size)
+                                        exb_size += size
                                 if node["Node Index"] in multi_counts:
                                     multi_counts[node["Node Index"]] += len(entry["Sources"])
                                 else:
@@ -870,9 +1000,39 @@ class AINB:
                 if "Input Parameters" in node:
                     for type in node["Input Parameters"]:
                         for entry in node["Input Parameters"][type]:
+                            if "Function" in entry:
+                                exb_count += 1
+                                size = 0
+                                for instruction in entry["Function"]["Instructions"]:
+                                    if "Data Type" in instruction:
+                                        if instruction["Data Type"] == "vec3f":
+                                            type_size = 12
+                                        else:
+                                            type_size = 4
+                                    if "LHS Source" in instruction or "RHS Source" in instruction:
+                                        if instruction["LHS Source"] == "Output":
+                                            size = max(size, instruction["LHS Index/Value"] + type_size)
+                                        if instruction["RHS Source"] == "Input":
+                                            size = max(size, instruction["RHS Index/Value"] + type_size)
+                                exb_size += size
                             if "Sources" in entry:
                                 for parameter in entry["Sources"]:
                                     multis.append(parameter)
+                                    if "Function" in parameter:
+                                        exb_count += 1
+                                        size = 0
+                                        for instruction in parameter["Function"]["Instructions"]:
+                                            if "Data Type" in instruction:
+                                                if instruction["Data Type"] == "vec3f":
+                                                    type_size = 12
+                                                else:
+                                                    type_size = 4
+                                            if "LHS Source" in instruction or "RHS Source" in instruction:
+                                                if instruction["LHS Source"] == "Output":
+                                                    size = max(size, instruction["LHS Index/Value"] + type_size)
+                                                if instruction["RHS Source"] == "Input":
+                                                    size = max(size, instruction["RHS Index/Value"] + type_size)
+                                        exb_size += size
                                 if node["Node Index"] in multi_counts:
                                     multi_counts[node["Node Index"]] += len(entry["Sources"])
                                 else:
@@ -887,6 +1047,7 @@ class AINB:
                     precon_counts[node["Node Index"]] = 0
                 if "Entry String" in node:
                     entry_strings.append((node["Node Index"], node["Entry String"]))
+                exb_info.append((exb_count, exb_size))
         buffer.skip(len(self.nodes) * 60)
 
         # Global Parameters
@@ -920,9 +1081,11 @@ class AINB:
                             files.append(entry["File Reference"])
                         name_offset = name_offset | (1 << 31)
                         name_offset = name_offset | (files.index(entry["File Reference"]) << 24)
+                    else:
+                        name_offset = name_offset | (1 << 23)
                     buffer.write(u32(name_offset))
-                    buffer.add_string(entry["Null String"])
-                    buffer.write(u32(buffer._string_refs[entry["Null String"]]))
+                    buffer.add_string(entry["Notes"])
+                    buffer.write(u32(buffer._string_refs[entry["Notes"]]))
             start = buffer.tell()
             size = 0
             for type in self.global_params:
@@ -1198,8 +1361,8 @@ class AINB:
                 buffer.write(u32(mmh3.hash(node["Name"], signed=False)))
                 buffer.write(u32(0))
                 buffer.write(u32(bodies[node["Node Index"]])) # Write offset later
-                buffer.write(u16(node["EXB Field Count"]))
-                buffer.write(u16(node["EXB Value Size"]))
+                buffer.write(u16(exb_info[node["Node Index"]][0]))
+                buffer.write(u16(exb_info[node["Node Index"]][1]))
                 buffer.write(u16(multi_counts[node["Node Index"]]))
                 buffer.write(u16(0))
                 buffer.write(u32(base_attach))
@@ -1224,13 +1387,12 @@ class AINB:
             for entry in attachment_indices:
                 buffer.write(u32(entry))
             attachment_start = buffer.tell()
-            print(hex(attachment_start))
             for attachment in attachments:
                 buffer.add_string(attachment["Name"])
                 buffer.write(u32(buffer._string_refs[attachment["Name"]]))
                 buffer.write(u32(attachment_start + 16 * len(attachments) + 100 * attachments.index(attachment)))
-                buffer.write(u16(attachment["EXB Field Count"]))
-                buffer.write(u16(attachment["EXB Value Size"]))
+                buffer.write(u16(attach_exb_info[attachments.index(attachment)][0]))
+                buffer.write(u16(attach_exb_info[attachments.index(attachment)][1]))
                 buffer.write(u32(mmh3.hash(attachment["Name"], signed=False)))
             for attachment in attachments:
                 if "Debug" in attachment["Name"]:
@@ -1270,22 +1432,27 @@ class AINB:
                 for entry in immediate_parameters[type]:
                     buffer.add_string(entry["Name"])
                     buffer.write(u32(buffer._string_refs[entry["Name"]]))
+                    flags = 0x0
                     if type == "userdefined":
                         buffer.add_string(entry["Class"])
                         buffer.write(u32(buffer._string_refs[entry["Class"]]))
-                    if "Global/EXB Index" in entry:
-                        buffer.write(u16(entry["Global/EXB Index"]))
+                    if "Global Parameters Index" in entry:
+                        buffer.write(u16(entry["Global Parameters Index"]))
+                        flags += 0x8000
+                    elif "EXB Index" in entry:
+                        buffer.write(u16(entry["EXB Index"]))
+                        flags += 0xc200
                     else:
                         buffer.write(u16(0))
                     if "Flags" in entry:
                         for flag in entry["Flags"]:
-                            if isinstance(flag, int):
-                                buffer.write(u16(flag))
-                                break
-                    else:
-                        buffer.write(u16(0))
+                            if flag == "Pulse Thread Local Storage":
+                                flags += 0x80
+                            if flag == "Set Pointer Flag Bit Zero":
+                                flags += 0x100
+                    buffer.write(u16(flags))
                     if type == "int":
-                        buffer.write(u32(entry["Value"]))
+                        buffer.write(s32(entry["Value"]))
                     elif type == "bool":
                         buffer.write(u32(int(entry["Value"])))
                     elif type == "float":
@@ -1319,24 +1486,29 @@ class AINB:
                 for entry in input_parameters[type]:
                     buffer.add_string(entry["Name"])
                     buffer.write(u32(buffer._string_refs[entry["Name"]]))
+                    flags = 0x0
                     if type == "userdefined":
                         buffer.add_string(entry["Class"])
                         buffer.write(u32(buffer._string_refs[entry["Class"]]))
                     buffer.write(s16(entry["Node Index"]))
                     buffer.write(s16(entry["Parameter Index"]))
-                    if "Global/EXB Index" in entry:
-                        buffer.write(u16(entry["Global/EXB Index"]))
+                    if "Global Parameters Index" in entry:
+                        buffer.write(u16(entry["Global Parameters Index"]))
+                        flags += 0x8000
+                    elif "EXB Index" in entry:
+                        buffer.write(u16(entry["EXB Index"]))
+                        flags += 0xc200
                     else:
                         buffer.write(u16(0))
                     if "Flags" in entry:
                         for flag in entry["Flags"]:
-                            if isinstance(flag, int):
-                                buffer.write(u16(flag))
-                                break
-                    else:
-                        buffer.write(u16(0))
+                            if flag == "Pulse Thread Local Storage":
+                                flags += 0x80
+                            if flag == "Set Pointer Flag Bit Zero":
+                                flags += 0x100
+                    buffer.write(u16(flags))
                     if type == "int":
-                        buffer.write(u32(entry["Value"]))
+                        buffer.write(s32(entry["Value"]))
                     elif type == "bool":
                         buffer.write(u32(int(entry["Value"])))
                     elif type == "float":
@@ -1367,17 +1539,22 @@ class AINB:
             for entry in multis:
                 buffer.write(s16(entry["Node Index"]))
                 buffer.write(s16(entry["Parameter Index"]))
-                if "Global/EXB Index" in entry:
-                    buffer.write(u16(entry["Global/EXB Index"]))
+                flags = 0x0
+                if "Global Parameters Index" in entry:
+                    buffer.write(u16(entry["Global Parameters Index"]))
+                    flags += 0x8000
+                elif "EXB Index" in entry:
+                    buffer.write(u16(entry["EXB Index"]))
+                    flags += 0xc200
                 else:
                     buffer.write(u16(0))
                 if "Flags" in entry:
                     for flag in entry["Flags"]:
-                        if isinstance(flag, int):
-                            buffer.write(u16(flag))
-                            break
-                else:
-                    buffer.write(u16(0))
+                        if flag == "Pulse Thread Local Storage":
+                            flags += 0x80
+                        if flag == "Set Pointer Flag Bit Zero":
+                            flags += 0x100
+                buffer.write(u16(flags))
         resident_start = buffer.tell()
         if residents:
             current = resident_start + len(residents) * 4
@@ -1405,7 +1582,7 @@ class AINB:
                 buffer.write(u16(0)) # Purpose unknown
         exb_start = buffer.tell()
         if self.exb:
-            end = self.exb.ToBytes(self.exb, buffer, exb_start)
+            end = self.exb.ToBytes(self.exb, buffer, exb_start, self.exb_instances)
             buffer.seek(end)
         embed_ainb_start = buffer.tell()
         buffer.write(u32(len(self.ainb_array)))
@@ -1491,7 +1668,7 @@ class AINB:
             buffer.write(u32(0))
         buffer.write(u32(child_replace_start))
         buffer.write(u32(precondition_start))
-        buffer.write(u32(resident_start)) # Always the same as the resident array offset, unused
+        buffer.write(u32(resident_start)) # 0x50 is always the same as the resident array offset, unused
         buffer.skip(8)
         buffer.write(u32(embed_ainb_start))
         buffer.skip(8)
@@ -1502,15 +1679,15 @@ class AINB:
 
 
 if __name__ == "__main__":
-    with open('test.json', 'r', encoding='utf-8') as file:
+    """with open('test.json', 'r', encoding='utf-8') as file:
         data = json.load(file)
 
-    test = AINB(data, from_dict=True)
+    test = AINB(data, from_dict=True)"""
 
-    """with open('Npc_Gerudo_Queen_Young.event.root.ainb', 'rb') as file:
+    with open('ainb/Npc_Gerudo_Queen_Young.event.root.ainb', 'rb') as file:
         data = file.read()
 
-    test = AINB(data)"""
+    test = AINB(data)
 
     with open('test.json', 'w', encoding='utf-8') as outfile:
         json.dump(test.output_dict, outfile, indent=4, ensure_ascii=False)
