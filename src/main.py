@@ -7,6 +7,7 @@ import dearpygui.dearpygui as dpg
 from app_types import *
 from window_ainb_index import open_ainb_index_window
 from window_ainb_graph import open_ainb_graph_window
+import edit_context
 
 
 def main():
@@ -32,6 +33,10 @@ def main():
     ainb_index_window = open_ainb_index_window()
 
     romfs = dpg.get_value(AppConfigKeys.ROMFS_PATH)
+
+    ectx = edit_context.EditContext()
+    edit_context.active_ectx = ectx  # global via EditContext.get()
+
     use_ainbfile = sys.argv[-1] if str(sys.argv[-1]).endswith(".ainb") else None
     if use_ainbfile:
         use_ainbfile = use_ainbfile[len(romfs):].lstrip("/") if use_ainbfile.startswith(romfs) else use_ainbfile

@@ -6,6 +6,7 @@ from collections import defaultdict
 import dearpygui.dearpygui as dpg
 from dt_ainb.ainb import AINB
 
+from edit_context import EditContext
 import pack_util
 from app_types import *
 
@@ -53,17 +54,26 @@ class RenderAinbNodeRequest:
 
 def open_ainb_graph_window(s, a, ainb_location: AinbIndexCacheEntry):
     print(f"Opening {ainb_location.packfile}:/{ainb_location.ainbfile}")
-    romfs = dpg.get_value(AppConfigKeys.ROMFS_PATH)
     category, ainbfile = pathlib.Path(ainb_location.ainbfile).parts
+    ectx = EditContext.get()
+
+    if window_tag := ectx.get_ainb_window(ainb_location):
+        dpg.focus_item(window_tag)
+        return
+
+    ainb = ectx.load_ainb(ainb_location)
 
     if ainb_location.packfile == "Root":
-        ainb = AINB(open(f"{romfs}/{ainb_location.ainbfile}", "rb").read())
         window_label = f"[{category}] {ainbfile}"
     else:
-        ainb = AINB(pack_util.load_file_from_pack(f"{romfs}/{ainb_location.packfile}", ainb_location.ainbfile))
         window_label = f"[{category}] {ainbfile} [from {ainb_location.packfile}]"
 
-    with dpg.window(label=window_label, width=800, height=600, pos=[600, 200]) as ainb_window:
+    def close(*_):
+        ectx.unregister_ainb_window(ainb_location)
+
+    with dpg.window(label=window_label, width=800, height=600, pos=[600, 200], on_close=close) as ainb_window:
+        ectx.register_ainb_window(ainb_location, ainb_window)
+
         def redump_json():
             # Replace json textbox with working ainb (possibly dirty)
             ainb_json_str = json.dumps(ainb.output_dict, indent=4)

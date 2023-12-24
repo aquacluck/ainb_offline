@@ -21,7 +21,7 @@ def open_ainb_index_window():
             def callback_open_ainb(s, a, u):
                 textitem = a[1]
                 ainb_location: AinbIndexCacheEntry = dpg.get_item_user_data(textitem)
-                open_ainb_graph_window(s, None, ainb_location)
+                open_ainb_graph_window(None, None, ainb_location)
 
             with dpg.item_handler_registry(tag="ainb_index_window_handler") as open_ainb_handler:
                 dpg.add_item_clicked_handler(callback=callback_open_ainb)

@@ -32,6 +32,10 @@ class AinbIndexCacheEntry:  # Basic info for each ainb file
     ainbfile: str # *.ainb, relative to romfs or pack root
     packfile: Optional[str] = None  # romfs relative .pack.zs containing ainbfile
 
+    @property
+    def fullfile(self) -> str:
+        return f"{self.packfile}:/{self.ainbfile}"
+
 
 @dataclass
 class DeferredNodeLinkCall:
