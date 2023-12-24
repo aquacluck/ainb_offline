@@ -1,6 +1,7 @@
 import pathlib
 import dearpygui.dearpygui as dpg
 import io
+import json
 import os
 import shutil
 
@@ -20,6 +21,7 @@ class EditContext:
         self.romfs = dpg.get_value(AppConfigKeys.ROMFS_PATH)
         self.modfs = dpg.get_value(AppConfigKeys.MODFS_PATH)
         self.open_windows = {}
+        self.edit_histories = {}
 
     def get_ainb_window(self, ainb_location: AinbIndexCacheEntry):
         return self.open_windows.get(ainb_location.fullfile)
@@ -85,3 +87,16 @@ class EditContext:
             pack_util.save_file_to_pack(modfs_packfile, ainb_location.ainbfile, data)
             print(f"Saved {ainb_location.fullfile}")
             return
+
+    def perform_new_edit_operation(self, ainb_location: AinbIndexCacheEntry, ainb: AINB, edit_op: AinbEditOperation):
+        # Store operation
+        # TODO: save history on every operation and clear list (or keep a current entry tagged) upon export. eg crash recovery
+        if ainb_location.fullfile not in self.edit_histories:
+            self.edit_histories[ainb_location.fullfile] = []
+        self.edit_histories[ainb_location.fullfile].append(edit_op)
+
+        # Perform operation
+        if edit_op.op_type == AinbEditOperationTypes.REPLACE_JSON:
+            ainb.output_dict.clear()
+            ainb.output_dict.update(json.loads(edit_op.op_value))
+

@@ -85,7 +85,13 @@ def open_ainb_graph_window(s, a, ainb_location: AinbIndexCacheEntry):
         def rerender_graph_from_json():
             json_textbox = f"{ainb_window}/tabs/json/textbox"
             node_editor = f"{ainb_window}/tabs/graph/editor"
-            ainb.output_dict = json.loads(dpg.get_value(json_textbox))
+            user_json_str = dpg.get_value(json_textbox)
+
+            # Send event to edit ctx
+            edit_op = AinbEditOperation(op_type=AinbEditOperationTypes.REPLACE_JSON, op_value=user_json_str)
+            ectx.perform_new_edit_operation(ainb_location, ainb, edit_op)
+
+            # Re-render editor
             dpg.delete_item(node_editor, children_only=True)
             add_ainb_nodes(ainb, ainb_location, node_editor)
 

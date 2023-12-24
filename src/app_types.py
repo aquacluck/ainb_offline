@@ -44,3 +44,14 @@ class DeferredNodeLinkCall:
     src_node_i: int
     dst_node_i: int
     parent: Union[int, str]
+
+
+AinbEditOperationTypes = ConstDottableStringSet({
+    "REPLACE_JSON",
+})
+
+
+@dataclass
+class AinbEditOperation:
+    op_type: AinbEditOperationTypes
+    op_value: Any
