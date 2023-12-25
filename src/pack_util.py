@@ -29,7 +29,7 @@ def get_pack_decompression_ctx() -> zstd.ZstdDecompressor:
 
 
 @functools.lru_cache
-def get_pack_compression_ctx() -> zstd.ZstdDecompressor:
+def get_pack_compression_ctx() -> zstd.ZstdCompressor:
     filename = dpg.get_value(AppConfigKeys.ZSDIC_FILENAME)
     pack_zsdic = get_zsdics(filename)["pack.zsdic"]
     return zstd.ZstdCompressor(level=10, dict_data=pack_zsdic)

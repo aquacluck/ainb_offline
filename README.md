@@ -41,7 +41,6 @@ Minor limitations + UX issues:
 - Missing: Quick search/filter indexed ainb files
 - Missing: Decent window management (eg maximize, open ainb list)
 - Missing: Decent dirty state management (eg dirty indicators, autosave/confirmation, ...)
-- My chosen font can't render the Japanese text used in some files
 
 
 Problems? Please report *exactly* what you've attempted:

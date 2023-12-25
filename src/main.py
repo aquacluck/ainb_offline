@@ -27,7 +27,16 @@ def main():
         dpg.add_string_value(tag=AppConfigKeys.MODFS_PATH, default_value=_modfs)
 
     with dpg.font_registry():
-        default_font = dpg.add_font("static/fonts/SourceCodePro-Regular.otf", 16)
+        # No JP support
+        #default_font = dpg.add_font("static/fonts/SourceCodePro-Regular.otf", 16)
+
+        # Excessive filesize
+        with dpg.font("static/fonts/sarasa-term-j-regular.ttf", 16) as default_font:
+            dpg.add_font_range_hint(dpg.mvFontRangeHint_Japanese)
+
+        # 14 can be strenous to read, but useful in some conditions
+        #with dpg.font("static/fonts/sarasa-term-j-regular.ttf", 14) as small_font:
+        #    dpg.add_font_range_hint(dpg.mvFontRangeHint_Japanese)
     dpg.bind_font(default_font)
 
     ainb_index_window = open_ainb_index_window()
