@@ -45,7 +45,7 @@ def scoped_ainbfile_lookup(requested_ainb: AinbIndexCacheEntry) -> AinbIndexCach
         return entry
 
     # Then check AI/Global pack
-    global_packfile = "Pack/AI.Global.Product.100.pack.zs"
+    global_packfile = TitleVersionAiGlobalPack.get(dpg.get_value(AppConfigKeys.TITLE_VERSION))
     if entry := ainb_cache["Pack"].get(global_packfile, {}).get(requested_ainb.ainbfile):
         return entry
 
@@ -66,8 +66,9 @@ def get_ainb_index() -> Dict:
     entry_total = 0
 
     # Root ainb
-    print("Finding Root AI, Logic, Sequence AINBs ", end='', flush=True)
-    for catdir in ("AI", "Logic", "Sequence"):
+    root_dirs = TitleVersionRootPackDirs.get(dpg.get_value(AppConfigKeys.TITLE_VERSION))
+    print(f"Finding Root {root_dirs} AINBs ", end='', flush=True)
+    for catdir in root_dirs:
         for ainbfile in sorted(pathlib.Path(f"{romfs}/{catdir}").rglob("*.ainb")):
             romfs_relative: str = os.path.join(*ainbfile.parts[-2:])
             entry_total += 1
@@ -80,8 +81,8 @@ def get_ainb_index() -> Dict:
     print("")  # \n
 
     # Global pack ainb
-    print("Finding Pack/AI.Global.Product.100 AINBs ", end='', flush=True)
-    packfile = "Pack/AI.Global.Product.100.pack.zs"
+    packfile = TitleVersionAiGlobalPack.get(dpg.get_value(AppConfigKeys.TITLE_VERSION))
+    print(f"Finding {packfile} AINBs ", end='', flush=True)
     cached_ainb_locations = ainb_cache["Pack"].get(packfile, None)  # no {} default = negative cache
     if cached_ainb_locations is None:
         # TODO open AINB and index stuff?

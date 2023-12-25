@@ -17,7 +17,6 @@ def main():
     with dpg.value_registry():
         _romfs = os.environ.get("ROMFS") or "romfs"
         dpg.add_string_value(tag=AppConfigKeys.ROMFS_PATH, default_value=_romfs)
-        dpg.add_string_value(tag=AppConfigKeys.ZSDIC_FILENAME, default_value=f"{dpg.get_value(AppConfigKeys.ROMFS_PATH)}/Pack/ZsDic.pack.zs")
 
         _var = os.environ.get("APPVAR") or "var"
         dpg.add_string_value(tag=AppConfigKeys.APPVAR_PATH, default_value=_var)
@@ -39,13 +38,17 @@ def main():
         #    dpg.add_font_range_hint(dpg.mvFontRangeHint_Japanese)
     dpg.bind_font(default_font)
 
+    # Create edit context, determine romfs title+version
+    override_title_version = os.environ.get("TITLE_VERSION")  # Set this to suppress probing {romfs}/RSDB
+    ectx = edit_context.EditContext(override_title_version)
+    edit_context.active_ectx = ectx  # global via EditContext.get()
+    with dpg.value_registry():
+        dpg.add_string_value(tag=AppConfigKeys.TITLE_VERSION, default_value=ectx.title_version)
+
     ainb_index_window = open_ainb_index_window()
 
+    # Handle opening ainb from argv
     romfs = dpg.get_value(AppConfigKeys.ROMFS_PATH)
-
-    ectx = edit_context.EditContext()
-    edit_context.active_ectx = ectx  # global via EditContext.get()
-
     use_ainbfile = sys.argv[-1] if str(sys.argv[-1]).endswith(".ainb") else None
     if use_ainbfile:
         # Make path romfs-relative
@@ -63,6 +66,7 @@ def main():
     # import dearpygui.demo as demo
     # demo.show_demo()
 
+    # Hand over control to dpg's main loop
     dpg.set_primary_window(ainb_index_window, True)
     dpg.create_viewport(title="ainb offline", x_pos=0, y_pos=0, width=1600, height=1080, decorated=True, vsync=True)
     dpg.setup_dearpygui()

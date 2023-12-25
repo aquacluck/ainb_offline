@@ -12,12 +12,71 @@ class ConstDottableDict(dict):  # allows access by `self.foo` if "foo" in self
         return self[key] if key in self else super().__getattribute__(key)
 
 
+TitleVersions = ConstDottableStringSet({
+    "TOTK_100",
+    "TOTK_110",
+    "TOTK_111",
+    "TOTK_112",
+    "TOTK_120",
+    "TOTK_121",
+    "WONDER_100",
+    "WONDER_101",
+})
+
+
+TitleVersionAiGlobalPack = ConstDottableDict({
+    TitleVersions.TOTK_100: "Pack/AI.Global.Product.100.pack.zs",
+    TitleVersions.TOTK_110: "Pack/AI.Global.Product.110.pack.zs",
+    TitleVersions.TOTK_111: "Pack/AI.Global.Product.110.pack.zs",
+    TitleVersions.TOTK_112: "Pack/AI.Global.Product.110.pack.zs",
+    TitleVersions.TOTK_120: "Pack/AI.Global.Product.120.pack.zs",
+    TitleVersions.TOTK_121: "Pack/AI.Global.Product.120.pack.zs",
+    TitleVersions.WONDER_100: "Pack/AIGameCommon.pack.zs",
+    TitleVersions.WONDER_101: "Pack/AIGameCommon.pack.zs",
+})
+
+
+TitleVersionZsDicPack = ConstDottableDict({
+    TitleVersions.TOTK_100: "Pack/ZsDic.pack.zs",
+    TitleVersions.TOTK_110: "Pack/ZsDic.pack.zs",
+    TitleVersions.TOTK_111: "Pack/ZsDic.pack.zs",
+    TitleVersions.TOTK_112: "Pack/ZsDic.pack.zs",
+    TitleVersions.TOTK_120: "Pack/ZsDic.pack.zs",
+    TitleVersions.TOTK_121: "Pack/ZsDic.pack.zs",
+    # TitleVersions.WONDER_* do not use zstd dicts
+})
+
+
+TitleVersionRootPackDirs = ConstDottableDict({
+    TitleVersions.TOTK_100: ("AI", "Logic", "Sequence"),
+    TitleVersions.TOTK_110: ("AI", "Logic", "Sequence"),
+    TitleVersions.TOTK_111: ("AI", "Logic", "Sequence"),
+    TitleVersions.TOTK_112: ("AI", "Logic", "Sequence"),
+    TitleVersions.TOTK_120: ("AI", "Logic", "Sequence"),
+    TitleVersions.TOTK_121: ("AI", "Logic", "Sequence"),
+    TitleVersions.WONDER_100: ("AI",),
+    TitleVersions.WONDER_101: ("AI",),
+})
+
+
+TitleVersionIdentifyingFiles = ConstDottableDict({
+    TitleVersions.TOTK_100: "Pack/AI.Global.Product.100.pack.zs",
+    TitleVersions.TOTK_110: "RSDB/LoadingTips.Product.110.rstbl.byml.zs",
+    TitleVersions.TOTK_111: "RSDB/LoadingTips.Product.111.rstbl.byml.zs",
+    TitleVersions.TOTK_112: "RSDB/LoadingTips.Product.112.rstbl.byml.zs",
+    TitleVersions.TOTK_120: "RSDB/LoadingTips.Product.120.rstbl.byml.zs",
+    TitleVersions.TOTK_121: "RSDB/LoadingTips.Product.121.rstbl.byml.zs",
+    TitleVersions.WONDER_100: "RSDB/StageInfo.Product.100.rstbl.byml.zs",
+    TitleVersions.WONDER_101: "RSDB/StageInfo.Product.101.rstbl.byml.zs",  # XXX guessed
+})
+
+
 AppConfigKeys = ConstDottableStringSet({
     "AINB_FILE_INDEX_FILE",
     "APPVAR_PATH",
     "MODFS_PATH",
     "ROMFS_PATH",
-    "ZSDIC_FILENAME",
+    "TITLE_VERSION",
 })
 
 

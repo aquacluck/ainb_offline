@@ -1,5 +1,5 @@
 Folders we use:
-- Requires a read only romfs (really just AI, Logic, Sequence, Pack)
+- Requires a read only romfs (really just AI+Logic+Sequence, Pack, and RSDB for determining version)
 - "appvar" folder is for cache, history, etc
 - Output folder should be set to a mod romfs. Upon saving: Newly modified packs will be initialized from romfs, existing packs will have their dirty ainb files updated. This means we shouldn't clobber your mod's non-ainb changes.
 
@@ -22,6 +22,9 @@ python3 src/main.py Root:AI/Assassin_Senior.action.interuptlargedamage.module.ai
 # Or open from within packs, these are equivalent:
 python3 src/main.py Pack/Actor/Animal_Donkey_B.pack.zs:AI/NoMoveDonkey.root.ainb  # romfs-relative pack
 python3 src/main.py romfs/Pack/Actor/Animal_Donkey_B.pack.zs:AI/NoMoveDonkey.root.ainb  # cwd-relative pack
+
+# By default romfs RSDB is checked to determine version, unless version is specified:
+TITLE_VERSION=TOTK_100 python3 src/main.py
 ```
 
 Major limitations + known issues:
@@ -32,8 +35,6 @@ Major limitations + known issues:
 - Many links may be missing or wrong. This is a display issue, it doesn't affect serialization
 - Many nodes don't get proper layout on the graph, and layout is generally bad. Purely visual
 - Some files may crash, usually due to layout hitting a loop
-- AI/Global pack is hardcoded for totk 1.0.0: `Pack/AI.Global.Product.100`, other versions will need to change this
-- AI/Global pack, Root category folders (AI, Logic, Sequence), and zsdics are hardcoded for totk. Other titles (eg wonder) will need edits
 
 
 Minor limitations + UX issues:

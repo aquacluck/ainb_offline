@@ -14,6 +14,9 @@ from window_ainb_graph import open_ainb_graph_window
 def open_ainb_index_window():
     romfs = dpg.get_value(AppConfigKeys.ROMFS_PATH)
     ainb_cache = get_ainb_index()
+    title_version = dpg.get_value(AppConfigKeys.TITLE_VERSION)
+    global_packfile = TitleVersionAiGlobalPack[title_version]
+    root_dirs = TitleVersionRootPackDirs[title_version]
 
     with dpg.window() as primary_window:
         with dpg.child_window(label="AINB Index", pos=[0, 0], width=400, autosize_y=True) as ainb_index_window:
@@ -31,7 +34,7 @@ def open_ainb_index_window():
                 # dpg.add_tab_button(label="wipe cache")
                 # filtering, optional abc group trees, etc would be nice
 
-                for cat in ("AI", "Logic", "Sequence"):
+                for cat in root_dirs:
                     with dpg.tab(label=cat):
                         with dpg.child_window(tag=f"{ainb_index_window}/Root/{cat}", autosize_x=True, autosize_y=True):
                             pass
@@ -44,10 +47,9 @@ def open_ainb_index_window():
                     item = dpg.add_text(label, user_data=ainb_location, parent=f"{ainb_index_window}/Root/{cat}")
                     dpg.bind_item_handler_registry(item, open_ainb_handler)
 
-                with dpg.tab(label="Pack/AI.Global.Product.100"):
+                with dpg.tab(label=global_packfile[:-8]):
                     with dpg.child_window(autosize_x=True, autosize_y=True):
-                        packfile = "Pack/AI.Global.Product.100.pack.zs"
-                        cached_ainb_locations = ainb_cache["Pack"].get(packfile, {})
+                        cached_ainb_locations = ainb_cache["Pack"].get(global_packfile, {})
                         for ainbfile, ainb_location in cached_ainb_locations.items():
                             label = pathlib.Path(ainb_location.ainbfile).name
                             item = dpg.add_text(label, user_data=ainb_location)

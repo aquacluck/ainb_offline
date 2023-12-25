@@ -17,11 +17,25 @@ class EditContext:
         global active_ectx
         return active_ectx
 
-    def __init__(self):
+    def __init__(self, override_title_version: TitleVersions = None):
         self.romfs = dpg.get_value(AppConfigKeys.ROMFS_PATH)
         self.modfs = dpg.get_value(AppConfigKeys.MODFS_PATH)
         self.open_windows = {}
         self.edit_histories = {}
+
+        if override_title_version:
+            self.title_version = override_title_version
+            print(f"Version override {self.title_version}")
+        else:
+            self.title_version = self._derive_title_version(self.romfs)
+            print(f"Version detected {self.title_version}")
+
+    def _derive_title_version(self, romfs: str):
+        for title_version in TitleVersions:
+            file = TitleVersionIdentifyingFiles[title_version]
+            if pathlib.Path(f"{romfs}/{file}").exists():
+                return title_version
+        raise Exception(f"Version detection failed for romfs={romfs}")
 
     def get_ainb_window(self, ainb_location: AinbIndexCacheEntry):
         return self.open_windows.get(ainb_location.fullfile)

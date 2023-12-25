@@ -10,9 +10,14 @@ from app_types import *
 
 
 @functools.lru_cache
-def get_zsdics(zsdic_filename: str) -> Dict[str, zstd.ZstdCompressionDict]:
+def get_zsdics() -> Dict[str, zstd.ZstdCompressionDict]:
+    zsdic_pack = TitleVersionZsDicPack.get(dpg.get_value(AppConfigKeys.TITLE_VERSION))
+    if not zsdic_pack:
+        return dict()
+
+    romfs = dpg.get_value(AppConfigKeys.ROMFS_PATH)
     dctx = get_zstd_decompression_ctx(dict_data=None)
-    archive = sarc.SARC(dctx.decompress(open(zsdic_filename, "rb").read()))
+    archive = sarc.SARC(dctx.decompress(open(f"{romfs}/{zsdic_pack}", "rb").read()))
     return { fn: zstd.ZstdCompressionDict(archive.get_file_data(fn)) for fn in archive.list_files() }
 
 
@@ -23,15 +28,13 @@ def get_zstd_decompression_ctx(dict_data: Optional[zstd.ZstdCompressionDict] = N
 
 @functools.lru_cache
 def get_pack_decompression_ctx() -> zstd.ZstdDecompressor:
-    filename = dpg.get_value(AppConfigKeys.ZSDIC_FILENAME)
-    pack_zsdic = get_zsdics(filename)["pack.zsdic"]
+    pack_zsdic = get_zsdics().get("pack.zsdic")
     return get_zstd_decompression_ctx(dict_data=pack_zsdic)
 
 
 @functools.lru_cache
 def get_pack_compression_ctx() -> zstd.ZstdCompressor:
-    filename = dpg.get_value(AppConfigKeys.ZSDIC_FILENAME)
-    pack_zsdic = get_zsdics(filename)["pack.zsdic"]
+    pack_zsdic = get_zsdics().get("pack.zsdic")
     return zstd.ZstdCompressor(level=10, dict_data=pack_zsdic)
 
 
