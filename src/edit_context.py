@@ -119,16 +119,23 @@ class EditContext:
             # For now we just hardcode support for the selector shapes we use.
             print(f"param default = {edit_op.op_value} @ {edit_op.op_selector}")
             sel = edit_op.op_selector
-            if len(sel) != 6 or sel[0] != "Nodes" or sel[-1] != "Value":
+            if len(sel) != 6 or sel[0] != "Nodes" or sel[-1] not in ("Value", "Default Value"):
                 raise AssertionError(f"Cannot parse selector {sel}")
             # The path is guaranteed to exist for this case, so no missing parts
             # aj["Nodes"][i]["Immediate Parameters"][aj_type][i_of_type]["Value"] = op_value
-            param_type = sel[3]
+            # aj["Global Parameters"][aj_type][i_of_type]["Default Value"] = op_value
+
+            if sel[1] == -420 and sel[2] == PARAM_SECTION_NAME.GLOBAL:
+                target_params = ainb.output_dict[PARAM_SECTION_NAME.GLOBAL]
+            else:
+                target_params = ainb.output_dict[sel[0]][sel[1]][sel[2]]
+
+            param_type, i_of_type, default_name = sel[3], sel[4], sel[5]
             if param_type == "vec3f":
                 # FIXME separate ui elements, then parse them here
                 v = json.loads(edit_op.op_value)
-                ainb.output_dict[sel[0]][sel[1]][sel[2]][sel[3]][sel[4]][sel[5]][0] = v[0]
-                ainb.output_dict[sel[0]][sel[1]][sel[2]][sel[3]][sel[4]][sel[5]][1] = v[1]
-                ainb.output_dict[sel[0]][sel[1]][sel[2]][sel[3]][sel[4]][sel[5]][2] = v[2]
+                target_params[param_type][i_of_type][default_name][0] = v[0]
+                target_params[param_type][i_of_type][default_name][1] = v[1]
+                target_params[param_type][i_of_type][default_name][2] = v[2]
             else:
-                ainb.output_dict[sel[0]][sel[1]][sel[2]][sel[3]][sel[4]][sel[5]] = edit_op.op_value
+                target_params[param_type][i_of_type][default_name] = edit_op.op_value

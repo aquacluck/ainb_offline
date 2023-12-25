@@ -87,6 +87,14 @@ AppErrorStrings = ConstDottableDict({
 })
 
 
+PARAM_SECTION_NAME = ConstDottableDict({
+    "GLOBAL": "Global Parameters",
+    "IMMEDIATE": "Immediate Parameters",
+    "INPUT": "Input Parameters",
+    "OUTPUT": "Output Parameters",
+})
+
+
 @dataclass
 class AinbIndexCacheEntry:  # Basic info for each ainb file
     ainbfile: str # *.ainb, relative to romfs or pack root

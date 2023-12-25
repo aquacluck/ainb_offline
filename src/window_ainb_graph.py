@@ -14,12 +14,6 @@ from app_types import *
 # Legend:
 # _nnn per-mode-per-type counter on params, like ainb indexing
 # @ flags and node meta
-PARAM_SECTION_NAME = ConstDottableDict({
-    "GLOBAL": "Global Parameters",
-    "IMMEDIATE": "Immediate Parameters",
-    "INPUT": "Input Parameters",
-    "OUTPUT": "Output Parameters",
-})
 PARAM_SECTION_LEGEND = {
     PARAM_SECTION_NAME.GLOBAL: "$",
     PARAM_SECTION_NAME.IMMEDIATE: "#",
@@ -38,11 +32,11 @@ PARAM_SECTION_DPG_ATTR_TYPE = {
 #
 # ainb tag tree:
 #     /node{int}: Map<int, node_tag_ns>, a namespace for each node
+#     /Globals: namespace for a fake ainb node (real dpg node) holding global params
 #
 # Each node tag tree/ns contains:
 #     /Node: dpg.node
 #     /LinkTarget: dpg.node_attribute, used by flow control nodes to reference nodes they operate on
-#     /Params/Global Parameters/{str}: Map<str, dpg.node_attribute>
 #     /Params/Immediate Parameters/{str}: Map<str, dpg.node_attribute>
 #     /Params/Input Parameters/{str}: Map<str, dpg.node_attribute>
 #     /Params/Output Parameters/{str}: Map<str, dpg.node_attribute>
@@ -162,6 +156,27 @@ def add_ainb_nodes(ainb: AINB, ainb_location: AinbIndexCacheEntry, node_editor):
     ainb_tag_ns = f"{node_editor}/ainb0"
     category, _ainbfile = pathlib.Path(ainb_location.ainbfile).parts
 
+    # TODO special layout+style for globals node (and move node nearby when hovering on a consuming param?)
+    # TODO globals links, eg <Assassin_Senior.action.interuptlargedamage.module>.nodes[0].#ASCommand["Global Parameters Index"] == 0 points to $ASName="LargeDamagge"
+    # Render globals as a type of node? Not sure if dumb, we do need to link/associate globals into nodes anyways somehow
+    if aj.get(PARAM_SECTION_NAME.GLOBAL):
+        globals_tag_ns = f"{ainb_tag_ns}/Globals"
+        dpg.add_node(tag=f"{globals_tag_ns}/Node", label=PARAM_SECTION_NAME.GLOBAL, parent=node_editor)
+        render_ainb_node_param_section(RenderAinbNodeRequest(
+            # ainb
+            ainb=ainb,
+            ainb_location=ainb_location,
+            aj=aj,
+            category=category,
+            # ainb node
+            aj_node=aj,
+            node_i=-420,  # lol
+            # ui
+            node_editor=node_editor,
+            ainb_tag_ns=ainb_tag_ns,
+            node_tag_ns=globals_tag_ns,
+        ), PARAM_SECTION_NAME.GLOBAL)
+
     # needed somewhere to throw a lot of vars...
     render_reqs = [RenderAinbNodeRequest(
         # ainb
@@ -199,13 +214,9 @@ def render_ainb_node(req: RenderAinbNodeRequest) -> List[DeferredNodeLinkCall]:
         label = f"{node_type}({req.node_i})"
     else:
         label = f"{node_type}({req.node_i}): {node_name}"
-    # print(label, flush=True)
-
 
     with dpg.node(tag=f"{req.node_tag_ns}/Node", label=label, parent=req.node_editor) as node_tag_:
         render_ainb_node_topmeta(req)
-
-        # TODO globals
         render_ainb_node_param_section(req, PARAM_SECTION_NAME.IMMEDIATE)
         render_ainb_node_param_section(req, PARAM_SECTION_NAME.INPUT)
         render_ainb_node_param_section(req, PARAM_SECTION_NAME.OUTPUT)
@@ -336,39 +347,49 @@ def render_ainb_node_param_section(req: RenderAinbNodeRequest, param_section: PA
         i_of_type = -1
         for aj_param in aj_params:
             i_of_type += 1
+            # TODO allow editing names, although this will break links? higher level rename for that might be better
             param_name = aj_param.get("Name", AppErrorStrings.FAILNULL)
-            v = aj_param.get("Value")
+
+            # How defaults are named in this param section's json
+            param_default_name = "Default Value" if param_section == PARAM_SECTION_NAME.GLOBAL else "Value"
+
+            # TODO displaying nulls + ui for nulling values
+            # Some dpg inputs (eg int) blow up when given a null, so we awkwardly omit any null arg
+            v = aj_param.get(param_default_name)
+            dpg_default_value_kwarg = {"default_value": v} if v is not None else {}
+
             ui_label = f"{PARAM_SECTION_LEGEND[param_section]} {aj_type} {i_of_type}: {param_name}"
-            op_selector = ("Nodes", req.node_i, param_section, aj_type, i_of_type, "Value")
+            op_selector = ("Nodes", req.node_i, param_section, aj_type, i_of_type, param_default_name)
 
             def on_edit(sender, data, op_selector):
                 ectx = EditContext.get()
                 # TODO store jsonpath or something instead?
                 # aj["Nodes"][i]["Immediate Parameters"][aj_type][i_of_type]["Value"] = op_value
+                # aj["Global Parameters"][aj_type][i_of_type]["Default Value"] = op_value
                 op_value = data  # TODO how do non scalars work? also debounce or do on leave or something?
                 edit_op = AinbEditOperation(op_type=AinbEditOperationTypes.PARAM_UPDATE_DEFAULT, op_value=op_value, op_selector=op_selector)
                 ectx.perform_new_edit_operation(req.ainb_location, req.ainb, edit_op)
 
-            with dpg.node_attribute(tag=f"{req.node_tag_ns}/Params/{param_section}/{param_name}", attribute_type=PARAM_SECTION_DPG_ATTR_TYPE[param_section]):
+            with dpg.node_attribute(tag=f"{req.node_tag_ns}/Params/{param_section}/{param_name}", parent=f"{req.node_tag_ns}/Node", attribute_type=PARAM_SECTION_DPG_ATTR_TYPE[param_section]):
                 if param_section == PARAM_SECTION_NAME.OUTPUT:
                     # not much to show unless we're planning to execute the graph?
                     dpg.add_text(ui_label)
 
                 elif aj_type == "int":
-                    dpg.add_input_int(label=ui_label, width=80, default_value=v, user_data=op_selector, callback=on_edit)
+                    dpg.add_input_int(label=ui_label, width=80, user_data=op_selector, callback=on_edit, **dpg_default_value_kwarg)
                 elif aj_type == "bool":
-                    dpg.add_checkbox(label=ui_label, default_value=v, user_data=op_selector, callback=on_edit)
+                    dpg.add_checkbox(label=ui_label, user_data=op_selector, callback=on_edit, **dpg_default_value_kwarg)
                 elif aj_type == "float":
-                    dpg.add_input_float(label=ui_label, width=100, default_value=v, user_data=op_selector, callback=on_edit)
+                    dpg.add_input_float(label=ui_label, width=100, user_data=op_selector, callback=on_edit, **dpg_default_value_kwarg)
                 elif aj_type == "string":
-                    dpg.add_input_text(label=ui_label, width=150, default_value=v, user_data=op_selector, callback=on_edit)
+                    dpg.add_input_text(label=ui_label, width=150, user_data=op_selector, callback=on_edit, **dpg_default_value_kwarg)
                 elif aj_type == "vec3f":
-                    dpg.add_input_text(label=ui_label, width=300, default_value=v, user_data=op_selector, callback=on_edit)
+                    dpg.add_input_text(label=ui_label, width=300, user_data=op_selector, callback=on_edit, **dpg_default_value_kwarg)
                 elif aj_type == "userdefined":
-                    dpg.add_input_text(label=ui_label, width=300, default_value=v, user_data=op_selector, callback=on_edit)
+                    dpg.add_input_text(label=ui_label, width=300, user_data=op_selector, callback=on_edit, **dpg_default_value_kwarg)
                 else:
                     err_label = f"bruh typo in ur type {aj_type}"
-                    dpg.add_text(label=err_label, width=300, default_value=v)
+                    dpg.add_text(label=err_label, width=300, **dpg_default_value_kwarg)
 
 
 def process_ainb_node_link__outputboolinputfloatinput_link(req: RenderAinbNodeRequest, aj_link: Dict, i_of_link_type: int) -> List[DeferredNodeLinkCall]:

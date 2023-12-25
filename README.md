@@ -31,7 +31,7 @@ Major limitations + known issues:
 - Untested on Windows. I suggest WSL2 Ubuntu 22.04 LTS for Windows users, this is where I run it
 - userdefined param type edits have not been tested
 - Missing: add/remove params, add/remove nodes, add/remove links
-- Missing: global params, attachments, all things exb
+- Missing: attachments, all things exb
 - Many links may be missing or wrong. This is a display issue, it doesn't affect serialization
 - Many nodes don't get proper layout on the graph, and layout is generally bad. Purely visual
 - Some files may crash, usually due to layout hitting a loop
