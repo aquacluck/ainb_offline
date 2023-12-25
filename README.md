@@ -39,7 +39,6 @@ Major limitations + known issues:
 
 Minor limitations + UX issues:
 - Missing: Undo/history. We're tracking edit operations, but not persisting/restoring/presenting any undo yet
-- Missing: Quick search/filter indexed ainb files
 - Missing: Decent window management (eg maximize, open ainb list)
 - Missing: Decent dirty state management (eg dirty indicators, autosave/confirmation, ...)
 
