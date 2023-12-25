@@ -152,7 +152,7 @@ def open_ainb_graph_window(s, a, ainb_location: AinbIndexCacheEntry):
                     dpg.add_input_text(tag=json_textbox, default_value="any slow dumps?", width=-1, height=-1, multiline=True, tab_input=True, readonly=False)
                     redump_json()
 
-            dpg.add_tab_button(label="save", callback=save_ainb)
+            dpg.add_tab_button(label="Save to modfs", callback=save_ainb)
 
     return ainb_window
 

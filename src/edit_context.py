@@ -99,6 +99,7 @@ class EditContext:
         if edit_op.op_type == AinbEditOperationTypes.REPLACE_JSON:
             ainb.output_dict.clear()
             ainb.output_dict.update(json.loads(edit_op.op_value))
+            print(f"Overwrote working ainb @ {ainb_location.fullfile}")
         elif edit_op.op_type == AinbEditOperationTypes.PARAM_UPDATE_DEFAULT:
             # TODO generalize this into any path assignment? creating missing objs + being careful w mutability/refs...
             # For now we just hardcode support for the selector shapes we use.
