@@ -23,7 +23,7 @@ def main():
         dpg.add_string_value(tag=AppConfigKeys.APPVAR_PATH, default_value=_var)
         dpg.add_string_value(tag=AppConfigKeys.AINB_FILE_INDEX_FILE, default_value=f"{dpg.get_value(AppConfigKeys.APPVAR_PATH)}/cache/ainb_file_index.json")
 
-        _modfs = os.environ.get("OUTPUT_ROMFS") or "var/modfs"
+        _modfs = os.environ.get("OUTPUT_MODFS") or "var/modfs"
         dpg.add_string_value(tag=AppConfigKeys.MODFS_PATH, default_value=_modfs)
 
     with dpg.font_registry():
@@ -39,8 +39,17 @@ def main():
 
     use_ainbfile = sys.argv[-1] if str(sys.argv[-1]).endswith(".ainb") else None
     if use_ainbfile:
+        # Make path romfs-relative
         use_ainbfile = use_ainbfile[len(romfs):].lstrip("/") if use_ainbfile.startswith(romfs) else use_ainbfile
-        open_ainb_graph_window(None, None, AinbIndexCacheEntry(ainbfile=use_ainbfile, packfile="Root"))
+        # Resolve "Pack/Name.pack.zs:AI/File.ainb" notation
+        use_ainbfile = use_ainbfile.split(":")
+        if len(use_ainbfile) == 2:
+            ainb_location = AinbIndexCacheEntry(ainbfile=use_ainbfile[1], packfile=use_ainbfile[0])
+        elif len(use_ainbfile) == 1:
+            ainb_location = AinbIndexCacheEntry(ainbfile=use_ainbfile[0], packfile="Root")
+        else:
+            raise ValueError(f"Unparsable path {use_ainbfile}")
+        open_ainb_graph_window(None, None, ainb_location)
 
     # import dearpygui.demo as demo
     # demo.show_demo()

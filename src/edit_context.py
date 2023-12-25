@@ -99,4 +99,21 @@ class EditContext:
         if edit_op.op_type == AinbEditOperationTypes.REPLACE_JSON:
             ainb.output_dict.clear()
             ainb.output_dict.update(json.loads(edit_op.op_value))
-
+        elif edit_op.op_type == AinbEditOperationTypes.PARAM_UPDATE_DEFAULT:
+            # TODO generalize this into any path assignment? creating missing objs + being careful w mutability/refs...
+            # For now we just hardcode support for the selector shapes we use.
+            print(f"param default = {edit_op.op_value} @ {edit_op.op_selector}")
+            sel = edit_op.op_selector
+            if len(sel) != 6 or sel[0] != "Nodes" or sel[-1] != "Value":
+                raise AssertionError(f"Cannot parse selector {sel}")
+            # The path is guaranteed to exist for this case, so no missing parts
+            # aj["Nodes"][i]["Immediate Parameters"][aj_type][i_of_type]["Value"] = op_value
+            param_type = sel[3]
+            if param_type == "vec3f":
+                # FIXME separate ui elements, then parse them here
+                v = json.loads(edit_op.op_value)
+                ainb.output_dict[sel[0]][sel[1]][sel[2]][sel[3]][sel[4]][sel[5]][0] = v[0]
+                ainb.output_dict[sel[0]][sel[1]][sel[2]][sel[3]][sel[4]][sel[5]][1] = v[1]
+                ainb.output_dict[sel[0]][sel[1]][sel[2]][sel[3]][sel[4]][sel[5]][2] = v[2]
+            else:
+                ainb.output_dict[sel[0]][sel[1]][sel[2]][sel[3]][sel[4]][sel[5]] = edit_op.op_value

@@ -14,10 +14,24 @@ from app_types import *
 # Legend:
 # _nnn per-mode-per-type counter on params, like ainb indexing
 # @ flags and node meta
-# $ global params
-# # immediate params
-# I input params
-# O output params
+PARAM_SECTION_NAME = ConstDottableDict({
+    "GLOBAL": "Global Parameters",
+    "IMMEDIATE": "Immediate Parameters",
+    "INPUT": "Input Parameters",
+    "OUTPUT": "Output Parameters",
+})
+PARAM_SECTION_LEGEND = {
+    PARAM_SECTION_NAME.GLOBAL: "$",
+    PARAM_SECTION_NAME.IMMEDIATE: "#",
+    PARAM_SECTION_NAME.INPUT: "I",
+    PARAM_SECTION_NAME.OUTPUT: "O",
+}
+PARAM_SECTION_DPG_ATTR_TYPE = {
+    PARAM_SECTION_NAME.GLOBAL: dpg.mvNode_Attr_Static,
+    PARAM_SECTION_NAME.IMMEDIATE: dpg.mvNode_Attr_Static,
+    PARAM_SECTION_NAME.INPUT: dpg.mvNode_Attr_Input,
+    PARAM_SECTION_NAME.OUTPUT: dpg.mvNode_Attr_Output,
+}
 #
 # All dpg.node contents must be inside a dpg.node_attribute, which can make things weird.
 # dpg "nodes" are just the graph ui elements, although they do map to ainb nodes and this is a confusing coincidence
@@ -192,9 +206,9 @@ def render_ainb_node(req: RenderAinbNodeRequest) -> List[DeferredNodeLinkCall]:
         render_ainb_node_topmeta(req)
 
         # TODO globals
-        render_ainb_node_immediate_params(req.node_tag_ns, req.aj_node.get("Immediate Parameters", {}))
-        render_ainb_node_input_params(req.node_tag_ns, req.aj_node.get("Input Parameters", {}))
-        render_ainb_node_output_params(req.node_tag_ns, req.aj_node.get("Output Parameters", {}))
+        render_ainb_node_param_section(req, PARAM_SECTION_NAME.IMMEDIATE)
+        render_ainb_node_param_section(req, PARAM_SECTION_NAME.INPUT)
+        render_ainb_node_param_section(req, PARAM_SECTION_NAME.OUTPUT)
 
         for aj_link_type, aj_links in req.aj_node.get("Linked Nodes", {}).items():
             for i_of_link_type, aj_link in enumerate(aj_links):
@@ -309,79 +323,52 @@ def render_ainb_node_topmeta(req: RenderAinbNodeRequest) -> None:
                 dpg.add_text(f"@ {aj_flag}")
 
 
-def render_ainb_node_immediate_params(node_tag_ns: str, typed_params: Dict[str, List[Dict]]):
-    for aj_type, aj_params in typed_params.items():
-        i_of_type = -1
-        for aj_param in aj_params:
-            i_of_type += 1
-            param_name = aj_param.get("Name", AppErrorStrings.FAILNULL)
-            v = aj_param.get("Value")
-            ui_label = f"# {aj_type} {i_of_type}: {param_name}"
-
-            with dpg.node_attribute(tag=f"{node_tag_ns}/Params/Immediate Parameters/{param_name}", attribute_type=dpg.mvNode_Attr_Static):
-                if aj_type == "int":
-                    dpg.add_input_int(label=ui_label, width=80, default_value=v)
-                elif aj_type == "bool":
-                    dpg.add_checkbox(label=ui_label, default_value=v)
-                elif aj_type == "float":
-                    dpg.add_input_float(label=ui_label, width=100, default_value=v)
-                elif aj_type == "string":
-                    dpg.add_input_text(label=ui_label, width=150, default_value=v)
-                elif aj_type == "vec3f":
-                    dpg.add_input_text(label=ui_label, width=300, default_value=v)
-                elif aj_type == "userdefined":
-                    dpg.add_input_text(label=ui_label, width=300, default_value=v)
-                else:
-                    err_label = f"bruh typo in ur type {aj_type}"
-                    dpg.add_text(label=err_label, width=300, default_value=v)
-
-
 # TODO lol whats an attachment (runtime node replacement...?)
 # TODO Global/EXB Index, Flags
 # if entry["Node Index"] <= -100 and entry["Node Index"] >= -8192:
 #     entry["Multi Index"] = -100 - entry["Node Index"]
 #     entry["Multi Count"] = entry["Parameter Index"]
 # AI/PhantomGanon.metaai.root.json node 33 is its own precon?
-def render_ainb_node_input_params(node_tag_ns: str, typed_params: Dict[str, List[Dict]]):
+# TODO Set Pointer Flag Bit Zero, maybe more
+def render_ainb_node_param_section(req: RenderAinbNodeRequest, param_section: PARAM_SECTION_NAME):
+    typed_params: Dict[str, List[Dict]] = req.aj_node.get(param_section, {})
     for aj_type, aj_params in typed_params.items():
         i_of_type = -1
         for aj_param in aj_params:
             i_of_type += 1
             param_name = aj_param.get("Name", AppErrorStrings.FAILNULL)
             v = aj_param.get("Value")
-            ui_label = f"I {aj_type} {i_of_type}: {param_name}"
+            ui_label = f"{PARAM_SECTION_LEGEND[param_section]} {aj_type} {i_of_type}: {param_name}"
+            op_selector = ("Nodes", req.node_i, param_section, aj_type, i_of_type, "Value")
 
-            with dpg.node_attribute(tag=f"{node_tag_ns}/Params/Input Parameters/{param_name}", attribute_type=dpg.mvNode_Attr_Input):
-                if aj_type == "int":
-                    dpg.add_input_int(label=ui_label, width=80, default_value=v)
+            def on_edit(sender, data, op_selector):
+                ectx = EditContext.get()
+                # TODO store jsonpath or something instead?
+                # aj["Nodes"][i]["Immediate Parameters"][aj_type][i_of_type]["Value"] = op_value
+                op_value = data  # TODO how do non scalars work? also debounce or do on leave or something?
+                edit_op = AinbEditOperation(op_type=AinbEditOperationTypes.PARAM_UPDATE_DEFAULT, op_value=op_value, op_selector=op_selector)
+                ectx.perform_new_edit_operation(req.ainb_location, req.ainb, edit_op)
+
+            with dpg.node_attribute(tag=f"{req.node_tag_ns}/Params/{param_section}/{param_name}", attribute_type=PARAM_SECTION_DPG_ATTR_TYPE[param_section]):
+                if param_section == PARAM_SECTION_NAME.OUTPUT:
+                    # not much to show unless we're planning to execute the graph?
+                    dpg.add_text(ui_label)
+
+                elif aj_type == "int":
+                    dpg.add_input_int(label=ui_label, width=80, default_value=v, user_data=op_selector, callback=on_edit)
                 elif aj_type == "bool":
-                    dpg.add_checkbox(label=ui_label, default_value=v)
+                    dpg.add_checkbox(label=ui_label, default_value=v, user_data=op_selector, callback=on_edit)
                 elif aj_type == "float":
-                    dpg.add_input_float(label=ui_label, width=100, default_value=v)
+                    dpg.add_input_float(label=ui_label, width=100, default_value=v, user_data=op_selector, callback=on_edit)
                 elif aj_type == "string":
-                    dpg.add_input_text(label=ui_label, width=150, default_value=v)
+                    dpg.add_input_text(label=ui_label, width=150, default_value=v, user_data=op_selector, callback=on_edit)
                 elif aj_type == "vec3f":
-                    dpg.add_input_text(label=ui_label, width=300, default_value=v)
+                    dpg.add_input_text(label=ui_label, width=300, default_value=v, user_data=op_selector, callback=on_edit)
                 elif aj_type == "userdefined":
-                    dpg.add_input_text(label=ui_label, width=300, default_value=v)
+                    dpg.add_input_text(label=ui_label, width=300, default_value=v, user_data=op_selector, callback=on_edit)
                 else:
                     err_label = f"bruh typo in ur type {aj_type}"
                     dpg.add_text(label=err_label, width=300, default_value=v)
-
-
-# TODO Set Pointer Flag Bit Zero, maybe more
-def render_ainb_node_output_params(node_tag_ns: str, typed_params: Dict[str, List[Dict]]):
-    for aj_type, aj_params in typed_params.items():
-        i_of_type = -1
-        for aj_param in aj_params:
-            i_of_type += 1
-            param_name = aj_param.get("Name", AppErrorStrings.FAILNULL)
-            v = aj_param.get("Value")
-            ui_label = f"O {aj_type} {i_of_type}: {param_name}"
-
-            with dpg.node_attribute(tag=f"{node_tag_ns}/Params/Output Parameters/{param_name}", attribute_type=dpg.mvNode_Attr_Output):
-                # not much to show unless we're planning to execute the graph?
-                dpg.add_text(ui_label)
 
 
 def process_ainb_node_link__outputboolinputfloatinput_link(req: RenderAinbNodeRequest, aj_link: Dict, i_of_link_type: int) -> List[DeferredNodeLinkCall]:

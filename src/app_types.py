@@ -4,11 +4,12 @@ from typing import *
 
 class ConstDottableStringSet(set):  # allows access by `self.foo` if "foo" in self
     def __getattribute__(self, key: str):
-            return key if key in self else super().__getattribute__(key)
+        return key if key in self else super().__getattribute__(key)
+
 
 class ConstDottableDict(dict):  # allows access by `self.foo` if "foo" in self
     def __getattribute__(self, key: str):
-            return key if key in self else super().__getattribute__(key)
+        return self[key] if key in self else super().__getattribute__(key)
 
 
 AppConfigKeys = ConstDottableStringSet({
@@ -34,7 +35,7 @@ class AinbIndexCacheEntry:  # Basic info for each ainb file
 
     @property
     def fullfile(self) -> str:
-        return f"{self.packfile}:/{self.ainbfile}"
+        return f"{self.packfile}:{self.ainbfile}"
 
 
 @dataclass
@@ -46,8 +47,10 @@ class DeferredNodeLinkCall:
     parent: Union[int, str]
 
 
+# These represent mutations for the AINB.output_dict json dict
 AinbEditOperationTypes = ConstDottableStringSet({
-    "REPLACE_JSON",
+    "REPLACE_JSON",  # Overwrite entire ainb with `op_value: str` json
+    "PARAM_UPDATE_DEFAULT",  # Set the "Value" to op_value for a param found with op_selector
 })
 
 
@@ -55,3 +58,4 @@ AinbEditOperationTypes = ConstDottableStringSet({
 class AinbEditOperation:
     op_type: AinbEditOperationTypes
     op_value: Any
+    op_selector: Any = None
