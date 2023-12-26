@@ -388,22 +388,46 @@ def render_ainb_node_param_section(req: RenderAinbNodeRequest, param_section: PA
                 elif aj_type == "vec3f":
                     #dpg.add_input_text(tag=ui_input_tag, label=ui_label, width=300, user_data=op_selector, callback=on_edit, **dpg_default_value_kwarg)
                     with dpg.group(horizontal=True):
-                        dpg.add_drag_floatx(tag=ui_input_tag, label=ui_label, width=300, user_data=op_selector, callback=on_edit, size=3, **dpg_default_value_kwarg)
+                        if not TitleVersionIsTotk(dpg.get_value(AppConfigKeys.TITLE_VERSION)):
+                            dpg.add_drag_floatx(tag=ui_input_tag, label=ui_label, width=300, user_data=op_selector, callback=on_edit, size=3, **dpg_default_value_kwarg)
 
-                        if TitleVersionIsTotk(dpg.get_value(AppConfigKeys.TITLE_VERSION)):
+                        else:  # totk
+                            # invisible input that maintains a flipped north/south axis
+                            ui_input_inverted = f"{ui_input_tag}/mapviz/inverted"
+                            do_map_inversion = lambda d: (d[0], d[1], -1 * d[2], d[3])
+
+                            def on_edit_inverted(sender, data, op_selector):
+                                # update real input and send real
+                                data = do_map_inversion(data)
+                                dpg.set_value(ui_input_tag, data)
+                                on_edit(sender, data, op_selector)
+
+                            def on_edit_do_invert(sender, data, op_selector):
+                                # update inverted input and send real
+                                dpg.set_value(ui_input_inverted, do_map_inversion(data))
+                                on_edit(sender, data, op_selector)
+
+                            # Initialize linked inputs
+                            dpg.add_drag_floatx(tag=ui_input_tag, label=ui_label, width=300, user_data=op_selector, callback=on_edit_do_invert, size=3, **dpg_default_value_kwarg)
+                            dpg.add_drag_floatx(tag=ui_input_inverted, show=False, size=3)
+                            dpg.set_value(ui_input_inverted, do_map_inversion(dpg.get_value(ui_input_tag)))
+
+                            # TODO lil map button or globe or something
                             dpg.add_button(label=f"{node_attr_tag_ns}/mapvizbutton", arrow=True, direction=dpg.mvDir_Right)
                             with dpg.popup(dpg.last_item(), mousebutton=dpg.mvMouseButton_Left, min_size=(250, 260), max_size=(250, 260)):
                                 dpg.add_3d_slider(
                                     tag=f"{node_attr_tag_ns}/mapviz",
+                                    source=ui_input_inverted,
+                                    callback=on_edit_inverted,
                                     user_data=op_selector,
-                                    callback=on_edit,
-                                    source = ui_input_tag,
+                                    # not desirable, i just don't see how to make the ui render otherwise
+                                    label="(north-south negated like ingame)",
                                     min_x = -6000.0,  # west
                                     min_y = -3500.0,  # far down, i dunno
-                                    min_z = -5000.0,  # south
+                                    min_z = -5000.0,  # north (but shown positive in game+mapviz)
                                     max_x = +6000.0,  # east
                                     max_y = +3500.0,  # a bit above sky limit?
-                                    max_z = +5000.0,  # north
+                                    max_z = +5000.0,  # south (but shown negative in game+mapviz)
                                 )
                                 dpg.add_image(AppStaticTextureKeys.TOTK_MAP_PICKER_250, pos=(0,0))
 
