@@ -55,7 +55,16 @@ def main():
             width, height, channels, data = dpg.load_image("static/totkmap.png")
             dpg.add_static_texture(width=width, height=height, default_value=data, tag=AppStaticTextureKeys.TOTK_MAP_PICKER_250)
 
-    ainb_index_window = open_ainb_index_window()
+    with dpg.window() as primary_window:
+        with dpg.menu_bar():
+            with dpg.menu(label="Debug"):
+                dpg.add_menu_item(label="Show Item Registry", callback=lambda: dpg.show_tool(dpg.mvTool_ItemRegistry))
+                dpg.add_menu_item(label="Show Debug", callback=lambda: dpg.show_tool(dpg.mvTool_Debug))
+                dpg.add_menu_item(label="Show Metrics", callback=lambda: dpg.show_tool(dpg.mvTool_Metrics))
+                dpg.add_menu_item(label="Show Style Editor", callback=lambda: dpg.show_tool(dpg.mvTool_Style))
+                dpg.add_menu_item(label="Show Font Manager", callback=lambda: dpg.show_tool(dpg.mvTool_Font))
+
+        ainb_index_window = open_ainb_index_window()
 
 
     # Handle opening ainb from argv
@@ -75,12 +84,8 @@ def main():
         open_ainb_graph_window(None, None, ainb_location)
 
 
-    # import dearpygui.demo as demo
-    # demo.show_demo()
-
-
     # Hand over control to dpg's main loop
-    dpg.set_primary_window(ainb_index_window, True)
+    dpg.set_primary_window(primary_window, True)
     dpg.create_viewport(title="ainb offline", x_pos=0, y_pos=0, width=1600, height=1080, decorated=True, vsync=True)
     dpg.setup_dearpygui()
     dpg.show_viewport()
