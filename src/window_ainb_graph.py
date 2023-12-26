@@ -386,12 +386,13 @@ def render_ainb_node_param_section(req: RenderAinbNodeRequest, param_section: PA
                 elif aj_type == "string":
                     dpg.add_input_text(tag=ui_input_tag, label=ui_label, width=150, user_data=op_selector, callback=on_edit, **dpg_default_value_kwarg)
                 elif aj_type == "vec3f":
-                    #dpg.add_input_text(tag=ui_input_tag, label=ui_label, width=300, user_data=op_selector, callback=on_edit, **dpg_default_value_kwarg)
                     with dpg.group(horizontal=True):
-                        if not TitleVersionIsTotk(dpg.get_value(AppConfigKeys.TITLE_VERSION)):
-                            dpg.add_drag_floatx(tag=ui_input_tag, label=ui_label, width=300, user_data=op_selector, callback=on_edit, size=3, **dpg_default_value_kwarg)
+                        dpg.add_drag_floatx(tag=ui_input_tag, label=ui_label, width=300, user_data=op_selector, callback=on_edit, size=3, **dpg_default_value_kwarg)
 
-                        else:  # totk
+                        # dpg creates hidden popup windows for every vec3f which don't get cleaned up when the ainb window closes.
+                        # It's not worth leaking this much, TODO clean these up
+                        """
+                        if TitleVersionIsTotk(dpg.get_value(AppConfigKeys.TITLE_VERSION)):
                             # invisible input that maintains a flipped north/south axis
                             ui_input_inverted = f"{ui_input_tag}/mapviz/inverted"
                             do_map_inversion = lambda d: (d[0], d[1], -1 * d[2], d[3])
@@ -430,6 +431,7 @@ def render_ainb_node_param_section(req: RenderAinbNodeRequest, param_section: PA
                                     max_z = +5000.0,  # south (but shown negative in game+mapviz)
                                 )
                                 dpg.add_image(AppStaticTextureKeys.TOTK_MAP_PICKER_250, pos=(0,0))
+                        """
 
                 elif aj_type == "userdefined":
                     dpg.add_input_text(tag=ui_input_tag, label=ui_label, width=300, user_data=op_selector, callback=on_edit, **dpg_default_value_kwarg)
