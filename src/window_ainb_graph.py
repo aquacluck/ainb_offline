@@ -370,26 +370,48 @@ def render_ainb_node_param_section(req: RenderAinbNodeRequest, param_section: PA
                 edit_op = AinbEditOperation(op_type=AinbEditOperationTypes.PARAM_UPDATE_DEFAULT, op_value=op_value, op_selector=op_selector)
                 ectx.perform_new_edit_operation(req.ainb_location, req.ainb, edit_op)
 
-            with dpg.node_attribute(tag=f"{req.node_tag_ns}/Params/{param_section}/{param_name}", parent=f"{req.node_tag_ns}/Node", attribute_type=PARAM_SECTION_DPG_ATTR_TYPE[param_section]):
+            node_attr_tag_ns = f"{req.node_tag_ns}/Params/{param_section}/{param_name}"
+            ui_input_tag = f"{node_attr_tag_ns}/ui_input"
+            with dpg.node_attribute(tag=node_attr_tag_ns, parent=f"{req.node_tag_ns}/Node", attribute_type=PARAM_SECTION_DPG_ATTR_TYPE[param_section]):
                 if param_section == PARAM_SECTION_NAME.OUTPUT:
                     # not much to show unless we're planning to execute the graph?
                     dpg.add_text(ui_label)
 
                 elif aj_type == "int":
-                    dpg.add_input_int(label=ui_label, width=80, user_data=op_selector, callback=on_edit, **dpg_default_value_kwarg)
+                    dpg.add_input_int(tag=ui_input_tag, label=ui_label, width=80, user_data=op_selector, callback=on_edit, **dpg_default_value_kwarg)
                 elif aj_type == "bool":
-                    dpg.add_checkbox(label=ui_label, user_data=op_selector, callback=on_edit, **dpg_default_value_kwarg)
+                    dpg.add_checkbox(tag=ui_input_tag, label=ui_label, user_data=op_selector, callback=on_edit, **dpg_default_value_kwarg)
                 elif aj_type == "float":
-                    dpg.add_input_float(label=ui_label, width=100, user_data=op_selector, callback=on_edit, **dpg_default_value_kwarg)
+                    dpg.add_input_float(tag=ui_input_tag, label=ui_label, width=100, user_data=op_selector, callback=on_edit, **dpg_default_value_kwarg)
                 elif aj_type == "string":
-                    dpg.add_input_text(label=ui_label, width=150, user_data=op_selector, callback=on_edit, **dpg_default_value_kwarg)
+                    dpg.add_input_text(tag=ui_input_tag, label=ui_label, width=150, user_data=op_selector, callback=on_edit, **dpg_default_value_kwarg)
                 elif aj_type == "vec3f":
-                    dpg.add_input_text(label=ui_label, width=300, user_data=op_selector, callback=on_edit, **dpg_default_value_kwarg)
+                    #dpg.add_input_text(tag=ui_input_tag, label=ui_label, width=300, user_data=op_selector, callback=on_edit, **dpg_default_value_kwarg)
+                    with dpg.group(horizontal=True):
+                        dpg.add_drag_floatx(tag=ui_input_tag, label=ui_label, width=300, user_data=op_selector, callback=on_edit, size=3, **dpg_default_value_kwarg)
+
+                        if TitleVersionIsTotk(dpg.get_value(AppConfigKeys.TITLE_VERSION)):
+                            dpg.add_button(label=f"{node_attr_tag_ns}/mapvizbutton", arrow=True, direction=dpg.mvDir_Right)
+                            with dpg.popup(dpg.last_item(), mousebutton=dpg.mvMouseButton_Left, min_size=(250, 260), max_size=(250, 260)):
+                                dpg.add_3d_slider(
+                                    tag=f"{node_attr_tag_ns}/mapviz",
+                                    user_data=op_selector,
+                                    callback=on_edit,
+                                    source = ui_input_tag,
+                                    min_x = -6000.0,  # west
+                                    min_y = -3500.0,  # far down, i dunno
+                                    min_z = -5000.0,  # south
+                                    max_x = +6000.0,  # east
+                                    max_y = +3500.0,  # a bit above sky limit?
+                                    max_z = +5000.0,  # north
+                                )
+                                dpg.add_image(AppStaticTextureKeys.TOTK_MAP_PICKER_250, pos=(0,0))
+
                 elif aj_type == "userdefined":
-                    dpg.add_input_text(label=ui_label, width=300, user_data=op_selector, callback=on_edit, **dpg_default_value_kwarg)
+                    dpg.add_input_text(tag=ui_input_tag, label=ui_label, width=300, user_data=op_selector, callback=on_edit, **dpg_default_value_kwarg)
                 else:
                     err_label = f"bruh typo in ur type {aj_type}"
-                    dpg.add_text(label=err_label, width=300, **dpg_default_value_kwarg)
+                    dpg.add_text(tag=ui_input_tag, label=err_label, width=300, **dpg_default_value_kwarg)
 
 
 def process_ainb_node_link__outputboolinputfloatinput_link(req: RenderAinbNodeRequest, aj_link: Dict, i_of_link_type: int) -> List[DeferredNodeLinkCall]:

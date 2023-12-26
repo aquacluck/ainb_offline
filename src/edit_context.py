@@ -105,6 +105,7 @@ class EditContext:
     def perform_new_edit_operation(self, ainb_location: AinbIndexCacheEntry, ainb: AINB, edit_op: AinbEditOperation):
         # Store operation
         # TODO: save history on every operation and clear list (or keep a current entry tagged) upon export. eg crash recovery
+        # TODO: keep timestamps and merge like operations into one latest? eg constant slider inputs, instead of debounce
         if ainb_location.fullfile not in self.edit_histories:
             self.edit_histories[ainb_location.fullfile] = []
         self.edit_histories[ainb_location.fullfile].append(edit_op)
@@ -132,10 +133,9 @@ class EditContext:
 
             param_type, i_of_type, default_name = sel[3], sel[4], sel[5]
             if param_type == "vec3f":
-                # FIXME separate ui elements, then parse them here
-                v = json.loads(edit_op.op_value)
-                target_params[param_type][i_of_type][default_name][0] = v[0]
-                target_params[param_type][i_of_type][default_name][1] = v[1]
-                target_params[param_type][i_of_type][default_name][2] = v[2]
+                x, y, z, _ = edit_op.op_value
+                target_params[param_type][i_of_type][default_name][0] = x
+                target_params[param_type][i_of_type][default_name][1] = y
+                target_params[param_type][i_of_type][default_name][2] = z
             else:
                 target_params[param_type][i_of_type][default_name] = edit_op.op_value

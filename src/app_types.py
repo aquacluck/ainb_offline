@@ -12,6 +12,8 @@ class ConstDottableDict(dict):  # allows access by `self.foo` if "foo" in self
         return self[key] if key in self else super().__getattribute__(key)
 
 
+TitleVersionIsTotk = lambda s: s.startswith("TOTK_")
+TitleVersionIsWonder = lambda s: s.startswith("WONDER_")
 TitleVersions = ConstDottableStringSet({
     "TOTK_100",
     "TOTK_110",
@@ -92,6 +94,11 @@ PARAM_SECTION_NAME = ConstDottableDict({
     "IMMEDIATE": "Immediate Parameters",
     "INPUT": "Input Parameters",
     "OUTPUT": "Output Parameters",
+})
+
+
+AppStaticTextureKeys = ConstDottableStringSet({
+    "TOTK_MAP_PICKER_250",
 })
 
 

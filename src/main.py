@@ -25,6 +25,8 @@ def main():
         _modfs = os.environ.get("OUTPUT_MODFS") or "var/modfs"
         dpg.add_string_value(tag=AppConfigKeys.MODFS_PATH, default_value=_modfs)
 
+
+    # Font management
     with dpg.font_registry():
         # No JP support
         #default_font = dpg.add_font("static/fonts/SourceCodePro-Regular.otf", 16)
@@ -38,6 +40,7 @@ def main():
         #    dpg.add_font_range_hint(dpg.mvFontRangeHint_Japanese)
     dpg.bind_font(default_font)
 
+
     # Create edit context, determine romfs title+version
     override_title_version = os.environ.get("TITLE_VERSION")  # Set this to suppress probing {romfs}/RSDB
     ectx = edit_context.EditContext(override_title_version)
@@ -45,7 +48,15 @@ def main():
     with dpg.value_registry():
         dpg.add_string_value(tag=AppConfigKeys.TITLE_VERSION, default_value=ectx.title_version)
 
+
+    # Stupid mapviz picker :D
+    if TitleVersionIsTotk(dpg.get_value(AppConfigKeys.TITLE_VERSION)):
+        with dpg.texture_registry():
+            width, height, channels, data = dpg.load_image("static/totkmap.png")
+            dpg.add_static_texture(width=width, height=height, default_value=data, tag=AppStaticTextureKeys.TOTK_MAP_PICKER_250)
+
     ainb_index_window = open_ainb_index_window()
+
 
     # Handle opening ainb from argv
     romfs = dpg.get_value(AppConfigKeys.ROMFS_PATH)
@@ -63,8 +74,10 @@ def main():
             raise ValueError(f"Unparsable path {use_ainbfile}")
         open_ainb_graph_window(None, None, ainb_location)
 
+
     # import dearpygui.demo as demo
     # demo.show_demo()
+
 
     # Hand over control to dpg's main loop
     dpg.set_primary_window(ainb_index_window, True)
