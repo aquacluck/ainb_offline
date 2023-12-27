@@ -1,4 +1,4 @@
-#import functools
+import functools
 import os
 import pathlib
 from typing import *
@@ -11,29 +11,32 @@ from db_model_pack_index import PackIndex
 import pack_util
 
 
-def scoped_ainbfile_lookup(requested_ainb: PackIndexEntry) -> PackIndexEntry:
-    # Resolves globals from inside packs, hydrates requested entry from index
-    ainb_cache = get_ainb_index()
+def scoped_pack_lookup(req: PackIndexEntry) -> PackIndexEntry:
+    # ainb external modules only specify name, never pack location,
+    # so we need to check all the relevant scopes to locate the pack containing it.
+    pack_index = get_pack_index_by_extension(req.extension)
 
     # First look inside the specified "local" pack
-    if entry := ainb_cache.get(requested_ainb.packfile, {}).get(requested_ainb.internalfile):
+    if entry := pack_index.get(req.packfile, {}).get(req.internalfile):
         return entry
 
-    # Then check AI/Global pack
-    global_packfile = TitleVersionAiGlobalPack.get(dpg.get_value(AppConfigKeys.TITLE_VERSION))
-    if entry := ainb_cache.get(global_packfile, {}).get(requested_ainb.internalfile):
-        return entry
+    # Can inject any other "global" packed resources per extension/format/etc here
+    if req.extension == "ainb":
+        # Then check AI/Global pack
+        global_packfile = TitleVersionAiGlobalPack.get(dpg.get_value(AppConfigKeys.TITLE_VERSION))
+        if entry := pack_index.get(global_packfile, {}).get(req.internalfile):
+            return entry
 
     # Finally check "Root" from {romfs}/{cat}/*.ainb
-    if entry := ainb_cache.get("Root", {}).get(requested_ainb.internalfile):
+    if entry := pack_index.get("Root", {}).get(req.internalfile):
         return entry
 
-    print(f"Failed scoped_ainbfile_lookup! {requested_ainb}")
+    print(f"Failed scoped_pack_lookup! {req}")
 
 
-#@functools.lru_cache
-def get_ainb_index() -> Dict[str, Dict[str, PackIndexEntry]]:
-    return PackIndex.get_all_entries_by_extension(db.Connection.get(), "ainb")
+@functools.lru_cache
+def get_pack_index_by_extension(ext: str) -> Dict[str, Dict[str, PackIndexEntry]]:
+    return PackIndex.get_all_entries_by_extension(db.Connection.get(), ext)
 
 
 def build_ainb_index_for_unknown_files() -> None:

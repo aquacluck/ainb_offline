@@ -20,7 +20,7 @@ class PackIndex:
 
     @classmethod
     def get_all_entries_by_extension(cls, conn: sqlite3.Connection, ext: str) -> Dict[str, Dict[str, PackIndexEntry]]:
-        # {"Pack/Actor/UrMom.pack.zs": {"internalfile1.ainb": PackIndexEntry, "internalfile2.ainb": PackIndexEntry}}
+        # {"Pack/Actor/DgnObj_UrMom.pack.zs": {"internalfile1.ainb": PackIndexEntry, "internalfile2.ainb": PackIndexEntry}}
         # {"Root": {"Logic/OpeningField_1856.logic.root.ainb": PackIndexEntry}}
 
         res = conn.execute(f"""

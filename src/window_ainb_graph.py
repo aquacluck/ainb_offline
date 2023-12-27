@@ -6,6 +6,7 @@ from collections import defaultdict
 import dearpygui.dearpygui as dpg
 from dt_ainb.ainb import AINB
 
+from app_ainb_cache import scoped_pack_lookup
 from edit_context import EditContext
 import pack_util
 from app_types import *
@@ -308,8 +309,6 @@ def render_ainb_file_links_and_layout(aj, ainb_tag_ns: str, link_calls: List[Def
 
 
 def render_ainb_node_topmeta(req: RenderAinbNodeRequest) -> None:
-    from app_ainb_cache import scoped_ainbfile_lookup  # circular ImportError time, lol python
-
     with dpg.node_attribute(tag=f"{req.node_tag_ns}/LinkTarget", attribute_type=dpg.mvNode_Attr_Input):
         for command_i, command in enumerate(req.aj.get("Commands", [])):
             if req.node_i == command["Left Node Index"]:
@@ -326,7 +325,7 @@ def render_ainb_node_topmeta(req: RenderAinbNodeRequest) -> None:
                     #print(aref["Count"]) ...instance/link count? TODO
 
                     dest_ainbfile = aref["File Category"] + '/' + aref["File Path"]
-                    dest_location = scoped_ainbfile_lookup(PackIndexEntry(internalfile=dest_ainbfile, packfile=req.ainb_location.packfile, extension="ainb"))
+                    dest_location = scoped_pack_lookup(PackIndexEntry(internalfile=dest_ainbfile, packfile=req.ainb_location.packfile, extension="ainb"))
                     with dpg.group(horizontal=True):
                         dpg.add_text(f'@ ExternalAINB[{aref["File Category"]}] {aref["File Path"]}')
                         dpg.add_button(label="Open AINB", user_data=dest_location, callback=open_ainb_graph_window, arrow=True, direction=dpg.mvDir_Right)
