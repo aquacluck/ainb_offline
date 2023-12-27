@@ -1,4 +1,4 @@
-import functools
+#import functools
 import os
 import pathlib
 from typing import *
@@ -31,8 +31,12 @@ def scoped_ainbfile_lookup(requested_ainb: PackIndexEntry) -> PackIndexEntry:
     print(f"Failed scoped_ainbfile_lookup! {requested_ainb}")
 
 
-@functools.lru_cache
+#@functools.lru_cache
 def get_ainb_index() -> Dict[str, Dict[str, PackIndexEntry]]:
+    return PackIndex.get_all_entries_by_extension(db.Connection.get(), "ainb")
+
+
+def build_ainb_index_for_unknown_files() -> None:
     romfs = dpg.get_value(AppConfigKeys.ROMFS_PATH)
     entry_hit = 0
     entry_total = 0
@@ -41,19 +45,22 @@ def get_ainb_index() -> Dict[str, Dict[str, PackIndexEntry]]:
         ainb_cache = PackIndex.get_all_entries_by_extension(conn, "ainb")
 
         # Root ainb
-        root_locations = []
+        root_locations = [] # Hits and misses are both accumulated because all filenames are persisted together
+        # We don't do this for real packs, opening them all up to compare filenames would be a massive waste of time.
         root_dirs = TitleVersionRootPackDirs.get(dpg.get_value(AppConfigKeys.TITLE_VERSION))
         print(f"Finding Root {root_dirs} AINBs ", end='', flush=True)
         for catdir in root_dirs:
             for ainbfile in sorted(pathlib.Path(f"{romfs}/{catdir}").rglob("*.ainb")):
                 romfs_relative: str = os.path.join(*ainbfile.parts[-2:])
                 entry_total += 1
+                root_locations.append(romfs_relative)
                 if ainb_cache["Root"].get(romfs_relative) is not None:
                     entry_hit += 1
                 else:
                     # TODO open AINB(ainbfile) and index: node types
-                    root_locations.append(romfs_relative)
-        PackIndex.persist_one_pack_one_extension(conn, "Root", "ainb", root_locations)
+                    pass
+        if entry_hit < entry_total:
+            PackIndex.persist_one_pack_one_extension(conn, "Root", "ainb", root_locations)
         print("")  # \n
 
         # Global pack ainb
@@ -99,10 +106,6 @@ def get_ainb_index() -> Dict[str, Dict[str, PackIndexEntry]]:
         print("")  # \n
 
     if entry_hit < entry_total:
-        # output is stale, just fetch our recent updates from db
-        del ainb_cache
         print(f"Cached {entry_total-entry_hit} new entries\n", flush=True)
-        return PackIndex.get_all_entries_by_extension(conn, "ainb")
     else:
         print(f"Cache hits {entry_hit}/{entry_total}\n", flush=True)
-        return ainb_cache
