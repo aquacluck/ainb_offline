@@ -56,7 +56,7 @@ def open_ainb_index_window():
                     # TODO context menu -> re-crawl pack or ainb
                     with dpg.tree_node(label="Root", default_open=True):
                         with dpg.filter_set(tag=f"{ainb_index_window}/Root/Filter"):
-                            cached_ainb_locations = ainb_cache["Pack"].get("Root", {})
+                            cached_ainb_locations = ainb_cache.get("Root", {})
                             for ainbfile, ainb_location in cached_ainb_locations.items():
                                 item = dpg.add_text(ainb_location.internalfile, user_data=ainb_location, parent=f"{ainb_index_window}/Root/Filter", filter_key=ainb_location.internalfile)
                                 dpg.bind_item_handler_registry(item, open_ainb_handler)
@@ -64,7 +64,7 @@ def open_ainb_index_window():
 
                     with dpg.tree_node(label=global_packfile, default_open=True):
                         with dpg.filter_set(tag=f"{ainb_index_window}/Global/Filter"):
-                            cached_ainb_locations = ainb_cache["Pack"].get(global_packfile, {})
+                            cached_ainb_locations = ainb_cache.get(global_packfile, {})
                             for ainbfile, ainb_location in cached_ainb_locations.items():
                                 item = dpg.add_text(ainb_location.internalfile, user_data=ainb_location, parent=f"{ainb_index_window}/Global/Filter", filter_key=ainb_location.internalfile)
                                 dpg.bind_item_handler_registry(item, open_ainb_handler)
@@ -81,7 +81,7 @@ def open_ainb_index_window():
                         for packfile in sorted(pathlib.Path(f"{romfs}/Pack/Actor").rglob("*.pack.zs")):
                             # XXX why so paranoid about only showing existing packs? can't we just loop through cache excluding global+root?
                             romfs_relative: str = os.path.join(*packfile.parts[-3:])
-                            cached_ainb_locations = ainb_cache["Pack"].get(romfs_relative, {})
+                            cached_ainb_locations = ainb_cache.get(romfs_relative, {})
                             ainbcount = len(cached_ainb_locations)
                             if ainbcount == 0:
                                 continue

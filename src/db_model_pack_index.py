@@ -30,7 +30,7 @@ class PackIndex:
             /* order */
             """, (ext,))
 
-        out = {}
+        out = {"Root": {}}
         for packfile, internal_filename_csv in res:
             # Packs with no results stay empty like this, internal_filename_csv="" negative cache
             out[packfile] = {}

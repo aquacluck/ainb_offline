@@ -16,16 +16,16 @@ def scoped_ainbfile_lookup(requested_ainb: PackIndexEntry) -> PackIndexEntry:
     ainb_cache = get_ainb_index()
 
     # First look inside the specified "local" pack
-    if entry := ainb_cache["Pack"].get(requested_ainb.packfile, {}).get(requested_ainb.internalfile):
+    if entry := ainb_cache.get(requested_ainb.packfile, {}).get(requested_ainb.internalfile):
         return entry
 
     # Then check AI/Global pack
     global_packfile = TitleVersionAiGlobalPack.get(dpg.get_value(AppConfigKeys.TITLE_VERSION))
-    if entry := ainb_cache["Pack"].get(global_packfile, {}).get(requested_ainb.internalfile):
+    if entry := ainb_cache.get(global_packfile, {}).get(requested_ainb.internalfile):
         return entry
 
     # Finally check "Root" from {romfs}/{cat}/*.ainb
-    if entry := ainb_cache["Pack"]["Root"].get(requested_ainb.internalfile):
+    if entry := ainb_cache.get("Root", {}).get(requested_ainb.internalfile):
         return entry
 
     print(f"Failed scoped_ainbfile_lookup! {requested_ainb}")
@@ -38,9 +38,7 @@ def get_ainb_index() -> Dict[str, Dict[str, PackIndexEntry]]:
     entry_total = 0
 
     with db.Connection.get() as conn:
-        ainb_cache = {"Pack": PackIndex.get_all_entries_by_extension(conn, "ainb")}
-        if ainb_cache["Pack"].get("Root") is None:
-            ainb_cache["Pack"]["Root"] = {}
+        ainb_cache = PackIndex.get_all_entries_by_extension(conn, "ainb")
 
         # Root ainb
         root_locations = []
@@ -50,7 +48,7 @@ def get_ainb_index() -> Dict[str, Dict[str, PackIndexEntry]]:
             for ainbfile in sorted(pathlib.Path(f"{romfs}/{catdir}").rglob("*.ainb")):
                 romfs_relative: str = os.path.join(*ainbfile.parts[-2:])
                 entry_total += 1
-                if ainb_cache["Pack"]["Root"].get(romfs_relative) is not None:
+                if ainb_cache["Root"].get(romfs_relative) is not None:
                     entry_hit += 1
                 else:
                     # TODO open AINB(ainbfile) and index: node types
@@ -62,7 +60,7 @@ def get_ainb_index() -> Dict[str, Dict[str, PackIndexEntry]]:
         packfile = TitleVersionAiGlobalPack.get(dpg.get_value(AppConfigKeys.TITLE_VERSION))
         print(f"Finding {packfile} AINBs ", end='', flush=True)
         # Packs with no matches will be present with an empty {}, only unknown packs will be None, serving as negative cache
-        cached_ainb_locations = ainb_cache["Pack"].get(packfile, None)
+        cached_ainb_locations = ainb_cache.get(packfile, None)
         if cached_ainb_locations is None:
             # TODO open AINB and index stuff?
             global_locations = [
@@ -82,7 +80,7 @@ def get_ainb_index() -> Dict[str, Dict[str, PackIndexEntry]]:
         for abs_packfile in sorted(pathlib.Path(f"{romfs}/Pack/Actor").rglob("*.pack.zs")):
             packfile = os.path.join(*abs_packfile.parts[-3:])
             # Packs with no matches will be present with an empty {}, only unknown packs will be None, serving as negative cache
-            cached_ainb_locations = ainb_cache["Pack"].get(packfile, None)
+            cached_ainb_locations = ainb_cache.get(packfile, None)
             if cached_ainb_locations is None:
                 # TODO open AINB and index stuff?
                 pack_locations = [
@@ -104,7 +102,7 @@ def get_ainb_index() -> Dict[str, Dict[str, PackIndexEntry]]:
         # output is stale, just fetch our recent updates from db
         del ainb_cache
         print(f"Cached {entry_total-entry_hit} new entries\n", flush=True)
-        return {"Pack": PackIndex.get_all_entries_by_extension(conn, "ainb")}
+        return PackIndex.get_all_entries_by_extension(conn, "ainb")
     else:
         print(f"Cache hits {entry_hit}/{entry_total}\n", flush=True)
         return ainb_cache
