@@ -74,7 +74,6 @@ TitleVersionIdentifyingFiles = ConstDottableDict({
 
 
 AppConfigKeys = ConstDottableStringSet({
-    "AINB_FILE_INDEX_FILE",
     "APPVAR_PATH",
     "MODFS_PATH",
     "ROMFS_PATH",

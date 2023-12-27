@@ -59,7 +59,8 @@ def scoped_ainbfile_lookup(requested_ainb: AinbIndexCacheEntry) -> AinbIndexCach
 @functools.lru_cache
 def get_ainb_index() -> Dict:
     romfs = dpg.get_value(AppConfigKeys.ROMFS_PATH)
-    ainb_file_index_file = dpg.get_value(AppConfigKeys.AINB_FILE_INDEX_FILE)
+    appvar = dpg.get_value(AppConfigKeys.APPVAR_PATH)
+    ainb_file_index_file = f"{appvar}/cache/ainb_file_index.json"
     ainb_cache = _load_or_new_empty_ainb_index(ainb_file_index_file)
 
     entry_hit = 0
@@ -116,7 +117,6 @@ def get_ainb_index() -> Dict:
         # TODO: zstd this to disk, and replace json with something streamable, 4MB string already here
         print(f"Caching {entry_total-entry_hit} new entries", end='')
         out = json.dumps(ainb_cache, default=vars, indent=4)
-        ainb_file_index_file = dpg.get_value(AppConfigKeys.AINB_FILE_INDEX_FILE)
         with open(ainb_file_index_file, "w") as outfile:
             outfile.write(out)
     else:

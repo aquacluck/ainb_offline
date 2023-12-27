@@ -1,4 +1,5 @@
 import os
+import pathlib
 import sys
 from typing import *
 
@@ -20,7 +21,6 @@ def main():
 
         _var = os.environ.get("APPVAR") or "var"
         dpg.add_string_value(tag=AppConfigKeys.APPVAR_PATH, default_value=_var)
-        dpg.add_string_value(tag=AppConfigKeys.AINB_FILE_INDEX_FILE, default_value=f"{dpg.get_value(AppConfigKeys.APPVAR_PATH)}/cache/ainb_file_index.json")
 
         _modfs = os.environ.get("OUTPUT_MODFS") or "var/modfs"
         dpg.add_string_value(tag=AppConfigKeys.MODFS_PATH, default_value=_modfs)
@@ -41,12 +41,25 @@ def main():
     dpg.bind_font(default_font)
 
 
-    # Create edit context, determine romfs title+version
-    override_title_version = os.environ.get("TITLE_VERSION")  # Set this to suppress probing {romfs}/RSDB
-    ectx = edit_context.EditContext(override_title_version)
-    edit_context.active_ectx = ectx  # global via EditContext.get()
+    # Determine romfs title+version
+    romfs = dpg.get_value(AppConfigKeys.ROMFS_PATH)
+    title_version = os.environ.get("TITLE_VERSION")  # Set this to suppress probing {romfs}/RSDB
+    if not title_version:
+        for tv in TitleVersions:
+            file = TitleVersionIdentifyingFiles[tv]
+            if pathlib.Path(f"{romfs}/{file}").exists():
+                title_version = tv
+                break
+    if not title_version:
+        raise Exception(f"Version detection failed for romfs={romfs}")
     with dpg.value_registry():
-        dpg.add_string_value(tag=AppConfigKeys.TITLE_VERSION, default_value=ectx.title_version)
+        print(f"Title version {title_version}")
+        dpg.add_string_value(tag=AppConfigKeys.TITLE_VERSION, default_value=title_version)
+
+
+    # Create edit context
+    ectx = edit_context.EditContext()
+    edit_context.active_ectx = ectx  # global via EditContext.get()
 
 
     # Stupid mapviz picker :D
@@ -55,6 +68,8 @@ def main():
             width, height, channels, data = dpg.load_image("static/totkmap.png")
             dpg.add_static_texture(width=width, height=height, default_value=data, tag=AppStaticTextureKeys.TOTK_MAP_PICKER_250)
 
+
+    # Main ui
     with dpg.window() as primary_window:
         with dpg.menu_bar():
             with dpg.menu(label="Debug"):
@@ -68,7 +83,6 @@ def main():
 
 
     # Handle opening ainb from argv
-    romfs = dpg.get_value(AppConfigKeys.ROMFS_PATH)
     use_ainbfile = sys.argv[-1] if str(sys.argv[-1]).endswith(".ainb") else None
     if use_ainbfile:
         # Make path romfs-relative
