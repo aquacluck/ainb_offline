@@ -7,6 +7,7 @@ import dearpygui.dearpygui as dpg
 
 from app_types import *
 from db_model_pack_index import PackIndex
+from db_model_ainb_node_param_shape_index import AinbNodeParamShapeIndex
 
 
 tls = threading.local()
@@ -35,3 +36,4 @@ class Connection:
     def create_tables(self):
         with self.connection:
             self.connection.execute(PackIndex.emit_create())
+            self.connection.execute(AinbNodeParamShapeIndex.emit_create())

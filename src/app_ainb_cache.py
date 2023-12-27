@@ -7,7 +7,9 @@ import dearpygui.dearpygui as dpg
 
 from app_types import *
 import db
+from db_model_ainb_node_param_shape_index import AinbNodeParamShape, AinbNodeParamShapeIndex
 from db_model_pack_index import PackIndex
+from dt_ainb.ainb import AINB
 import pack_util
 
 
@@ -48,36 +50,34 @@ def build_ainb_index_for_unknown_files() -> None:
         ainb_cache = PackIndex.get_all_entries_by_extension(conn, "ainb")
 
         # Root ainb
-        root_locations = [] # Hits and misses are both accumulated because all filenames are persisted together
+        root_all_locations = [] # Hits and misses are both accumulated for pack index because all filenames are persisted together
+        root_new_locations = [] # But for ainb node inspection we can't open them all up every time
         # We don't do this for real packs, opening them all up to compare filenames would be a massive waste of time.
         root_dirs = TitleVersionRootPackDirs.get(dpg.get_value(AppConfigKeys.TITLE_VERSION))
-        print(f"Finding Root {root_dirs} AINBs ", end='', flush=True)
+        print(f"Crawling Root {root_dirs} AINBs ", end='', flush=True)
         for catdir in root_dirs:
             for ainbfile in sorted(pathlib.Path(f"{romfs}/{catdir}").rglob("*.ainb")):
                 romfs_relative: str = os.path.join(*ainbfile.parts[-2:])
                 entry_total += 1
-                root_locations.append(romfs_relative)
+                root_all_locations.append(romfs_relative)
                 if ainb_cache["Root"].get(romfs_relative) is not None:
                     entry_hit += 1
                 else:
-                    # TODO open AINB(ainbfile) and index: node types
-                    pass
+                    root_new_locations.append(romfs_relative)
         if entry_hit < entry_total:
-            PackIndex.persist_one_pack_one_extension(conn, "Root", "ainb", root_locations)
+            inspect_ainb_pack(conn, romfs, "Root", {k: None for k in root_new_locations})
+            PackIndex.persist_one_pack_one_extension(conn, "Root", "ainb", root_all_locations)
         print("")  # \n
 
         # Global pack ainb
         packfile = TitleVersionAiGlobalPack.get(dpg.get_value(AppConfigKeys.TITLE_VERSION))
-        print(f"Finding {packfile} AINBs ", end='', flush=True)
+        print(f"Crawling {packfile} AINBs ", end='', flush=True)
         # Packs with no matches will be present with an empty {}, only unknown packs will be None, serving as negative cache
         cached_ainb_locations = ainb_cache.get(packfile, None)
         if cached_ainb_locations is None:
-            # TODO open AINB and index stuff?
-            global_locations = [
-                f for f in pack_util.get_pack_internal_filenames(f"{romfs}/{packfile}")
-                if f.endswith(".ainb")
-            ]
-            PackIndex.persist_one_pack_one_extension(conn, packfile, "ainb", global_locations)
+            global_locations = pack_util.load_ext_files_from_pack(f"{romfs}/{packfile}", "ainb")
+            inspect_ainb_pack(conn, romfs, packfile, global_locations)
+            PackIndex.persist_one_pack_one_extension(conn, packfile, "ainb", global_locations.keys())
             entry_total += len(global_locations)
         else:
             entry_hit += len(cached_ainb_locations)
@@ -85,19 +85,16 @@ def build_ainb_index_for_unknown_files() -> None:
         print("")  # \n
 
         # Actor pack ainb
-        print("Finding Pack/Actor AINBs: ", end='', flush=True)
+        print("Crawling Pack/Actor AINBs: ", end='', flush=True)
         log_feedback_letter = ''
         for abs_packfile in sorted(pathlib.Path(f"{romfs}/Pack/Actor").rglob("*.pack.zs")):
             packfile = os.path.join(*abs_packfile.parts[-3:])
             # Packs with no matches will be present with an empty {}, only unknown packs will be None, serving as negative cache
             cached_ainb_locations = ainb_cache.get(packfile, None)
             if cached_ainb_locations is None:
-                # TODO open AINB and index stuff?
-                pack_locations = [
-                    f for f in pack_util.get_pack_internal_filenames(f"{romfs}/{packfile}")
-                    if f.endswith(".ainb")
-                ]
-                PackIndex.persist_one_pack_one_extension(conn, packfile, "ainb", pack_locations)
+                pack_locations = pack_util.load_ext_files_from_pack(f"{romfs}/{packfile}", "ainb")
+                inspect_ainb_pack(conn, romfs, packfile, pack_locations)
+                PackIndex.persist_one_pack_one_extension(conn, packfile, "ainb", pack_locations.keys())
                 entry_total += len(pack_locations)
             else:
                 entry_hit += len(cached_ainb_locations)
@@ -112,3 +109,53 @@ def build_ainb_index_for_unknown_files() -> None:
         print(f"Cached {entry_total-entry_hit} new entries\n", flush=True)
     else:
         print(f"Cache hits {entry_hit}/{entry_total}\n", flush=True)
+
+
+def inspect_ainb_pack(conn, rootfs: str, packfile: str, pack_data: Dict[str, memoryview]):
+    # Crawl each ainb to discover param info per node type.
+    # XXX rootfs could be romfs or modfs, should be whatever pack_data's source is.
+    # currently it won't see modfs at all, and for some reason I put related lookups in edit_context?
+    if len(pack_data) == 0:
+        return
+
+    int_columns = AinbNodeParamShapeIndex.INT_COLUMNS
+
+    for internalfile, data in pack_data.items():
+        if packfile == "Root":
+            data = memoryview(open(f"{rootfs}/{internalfile}", "rb").read())
+        ainb = AINB(data)
+
+        # TODO index file level info in another table?
+        #file_category = ainb.output_dict["Info"]["File Category"]
+        #file_globals = ainb.output_dict.get(PARAM_SECTION_NAME.GLOBAL, {})
+
+        # TODO additional table for userdefined classes/instantiation/??? detail,
+        # since just counting userdefineds leaves a lot of type info out.
+        # might be able to generally add metadata/flags/etc to all params this way?
+
+        for aj_node in ainb.output_dict.get("Nodes", []):
+            node_type = aj_node["Node Type"]
+            if node_is_userdefined := (node_type == "UserDefined"):
+                if node_name := aj_node["Name"]:
+                    node_type = node_name
+
+            param_counts = [0] * len(int_columns)
+
+            for aj_type, aj_params in aj_node.get(PARAM_SECTION_NAME.IMMEDIATE, {}).items():
+                col = f"imm_{aj_type}_n"
+                i = int_columns.index(col)
+                param_counts[i] = len(aj_params)
+
+            for aj_type, aj_params in aj_node.get(PARAM_SECTION_NAME.INPUT, {}).items():
+                col = f"in_{aj_type}_n"
+                i = int_columns.index(col)
+                param_counts[i] = len(aj_params)
+
+            for aj_type, aj_params in aj_node.get(PARAM_SECTION_NAME.OUTPUT, {}).items():
+                col = f"out_{aj_type}_n"
+                i = int_columns.index(col)
+                param_counts[i] = len(aj_params)
+
+            # aj_node.get("Linked Nodes", {})
+            AinbNodeParamShapeIndex.persist_shape(conn, node_type, node_is_userdefined, param_counts)
+

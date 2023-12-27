@@ -138,7 +138,6 @@ def open_ainb_graph_window(s, a, ainb_location: PackIndexEntry):
                     with dpg.group(horizontal=True):
                         #dpg.add_button(label="Refresh JSON", callback=redump_json)
                         #dpg.add_checkbox(label="(Always refresh)", tag=f"{ainb_window}/tabs/json/autodump", default_value=True)
-                        # TODO node_editor changes don't write back to AINB.output_dict yet
                         dpg.add_button(label="Apply Changes", callback=rerender_graph_from_json)
                         #      dpg.add_button(label="Overwrite AINB") duh
                         #      dpg.add_button(label="Open JSON in: ", source="jsdfl/opencmd")

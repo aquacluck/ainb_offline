@@ -71,6 +71,15 @@ def load_all_files_from_pack(packname: str) -> Dict[str, memoryview]:
     return { fn: archive.get_file_data(fn) for fn in sorted(archive.list_files()) }
 
 
+def load_ext_files_from_pack(packname: str, extension: str) -> Dict[str, memoryview]:
+    dctx = get_pack_decompression_ctx()
+    archive = sarc.SARC(dctx.decompress(open(packname, "rb").read()))
+    return {
+        fn: archive.get_file_data(fn) for fn in
+        sorted(f for f in archive.list_files() if f.endswith(extension))
+    }
+
+
 def get_pack_internal_filenames(packname: str) -> List[str]:
     dctx = get_pack_decompression_ctx()
     archive = sarc.SARC(dctx.decompress(open(packname, "rb").read()))
