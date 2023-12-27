@@ -108,13 +108,14 @@ AppStyleColors = ConstDottableDict({
 
 
 @dataclass
-class AinbIndexCacheEntry:  # Basic info for each ainb file
-    ainbfile: str # *.ainb, relative to romfs or pack root
-    packfile: Optional[str] = None  # romfs relative .pack.zs containing ainbfile
+class PackIndexEntry:
+    internalfile: str  # relative to packfile
+    packfile: str  # romfs relative .pack.zs containing internalfile, or "Root"
+    extension: str  # filetype
 
     @property
     def fullfile(self) -> str:
-        return f"{self.packfile}:{self.ainbfile}"
+        return f"{self.packfile}:{self.internalfile}"
 
 
 @dataclass

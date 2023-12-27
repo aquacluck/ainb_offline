@@ -24,10 +24,10 @@ class EditContext:
         self.open_windows = {}
         self.edit_histories = {}
 
-    def get_ainb_window(self, ainb_location: AinbIndexCacheEntry):
+    def get_ainb_window(self, ainb_location: PackIndexEntry):
         return self.open_windows.get(ainb_location.fullfile)
 
-    def register_ainb_window(self, ainb_location: AinbIndexCacheEntry, tag):
+    def register_ainb_window(self, ainb_location: PackIndexEntry, tag):
         if ainb_location.fullfile in self.open_windows:
             raise Exception(f"Window already open for {ainb_location.fullfile}")
         self.open_windows[ainb_location.fullfile] = tag
@@ -35,14 +35,14 @@ class EditContext:
     def unregister_ainb_window(self, ainb_location):
         del self.open_windows[ainb_location.fullfile]
 
-    def load_ainb(self, ainb_location: AinbIndexCacheEntry) -> AINB:
+    def load_ainb(self, ainb_location: PackIndexEntry) -> AINB:
         # Resolve through modfs, modfs packs, ...
         if ainb_location.packfile == "Root":
-            modfs_ainbfile = pathlib.Path(f"{self.modfs}/{ainb_location.ainbfile}")
+            modfs_ainbfile = pathlib.Path(f"{self.modfs}/{ainb_location.internalfile}")
             if modfs_ainbfile.exists():
                 return AINB(open(modfs_ainbfile, "rb").read())
 
-            romfs_ainbfile = pathlib.Path(f"{self.romfs}/{ainb_location.ainbfile}")
+            romfs_ainbfile = pathlib.Path(f"{self.romfs}/{ainb_location.internalfile}")
             if romfs_ainbfile.exists():
                 return AINB(open(romfs_ainbfile, "rb").read())
 
@@ -52,22 +52,22 @@ class EditContext:
             modfs_packfile = pathlib.Path(f"{self.modfs}/{ainb_location.packfile}")
             if modfs_packfile.exists():
                 try:
-                    return AINB(pack_util.load_file_from_pack(modfs_packfile, ainb_location.ainbfile))
+                    return AINB(pack_util.load_file_from_pack(modfs_packfile, ainb_location.internalfile))
                 except KeyError:
                     pass  # Other tools+workflows might create incomplete packs, just fall back to romfs
 
             romfs_packfile = pathlib.Path(f"{self.romfs}/{ainb_location.packfile}")
             if romfs_packfile.exists():
-                return AINB(pack_util.load_file_from_pack(romfs_packfile, ainb_location.ainbfile))
+                return AINB(pack_util.load_file_from_pack(romfs_packfile, ainb_location.internalfile))
 
             raise FileNotFoundError(f"Failed to resolve: {ainb_location.fullfile}")
 
-    def save_ainb(self, ainb_location: AinbIndexCacheEntry, dirty_ainb: AINB):
+    def save_ainb(self, ainb_location: PackIndexEntry, dirty_ainb: AINB):
         # AINB.output_dict is not intended to be modified, so other AINB members are stale
         updated_ainb = AINB(dirty_ainb.output_dict, from_dict=True)
 
         if ainb_location.packfile == "Root":
-            modfs_ainbfile = pathlib.Path(f"{self.modfs}/{ainb_location.ainbfile}")
+            modfs_ainbfile = pathlib.Path(f"{self.modfs}/{ainb_location.internalfile}")
             modfs_ainbfile.parent.mkdir(parents=True, exist_ok=True)
             with open(modfs_ainbfile, "wb") as outfile:
                 updated_ainb.ToBytes(updated_ainb, outfile)
@@ -85,11 +85,11 @@ class EditContext:
             # Overwrite file and save updated pack
             data = io.BytesIO()
             updated_ainb.ToBytes(updated_ainb, data)
-            pack_util.save_file_to_pack(modfs_packfile, ainb_location.ainbfile, data)
+            pack_util.save_file_to_pack(modfs_packfile, ainb_location.internalfile, data)
             print(f"Saved {ainb_location.fullfile}")
             return
 
-    def perform_new_edit_operation(self, ainb_location: AinbIndexCacheEntry, ainb: AINB, edit_op: AinbEditOperation):
+    def perform_new_edit_operation(self, ainb_location: PackIndexEntry, ainb: AINB, edit_op: AinbEditOperation):
         # Store operation
         # TODO: save history on every operation and clear list (or keep a current entry tagged) upon export. eg crash recovery
         # TODO: keep timestamps and merge like operations into one latest? eg constant slider inputs, instead of debounce

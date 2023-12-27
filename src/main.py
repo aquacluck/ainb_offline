@@ -5,6 +5,7 @@ from typing import *
 
 import dearpygui.dearpygui as dpg
 
+import db
 from app_types import *
 from window_ainb_index import open_ainb_index_window
 from window_ainb_graph import open_ainb_graph_window
@@ -57,6 +58,10 @@ def main():
         dpg.add_string_value(tag=AppConfigKeys.TITLE_VERSION, default_value=title_version)
 
 
+    # Bring up sqlite3
+    db.Connection.get()
+
+
     # Create edit context
     ectx = edit_context.EditContext()
     edit_context.active_ectx = ectx  # global via EditContext.get()
@@ -90,9 +95,9 @@ def main():
         # Resolve "Pack/Name.pack.zs:AI/File.ainb" notation
         use_ainbfile = use_ainbfile.split(":")
         if len(use_ainbfile) == 2:
-            ainb_location = AinbIndexCacheEntry(ainbfile=use_ainbfile[1], packfile=use_ainbfile[0])
+            ainb_location = PackIndexEntry(internalfile=use_ainbfile[1], packfile=use_ainbfile[0], extension="ainb")
         elif len(use_ainbfile) == 1:
-            ainb_location = AinbIndexCacheEntry(ainbfile=use_ainbfile[0], packfile="Root")
+            ainb_location = PackIndexEntry(internalfile=use_ainbfile[0], packfile="Root", extension="ainb")
         else:
             raise ValueError(f"Unparsable path {use_ainbfile}")
         open_ainb_graph_window(None, None, ainb_location)

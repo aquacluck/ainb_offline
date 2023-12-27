@@ -22,7 +22,7 @@ def open_ainb_index_window():
         with dpg.item_handler_registry(tag="ainb_index_window_handler") as open_ainb_handler:
             def callback_open_ainb(s, a, u):
                 textitem = a[1]
-                ainb_location: AinbIndexCacheEntry = dpg.get_item_user_data(textitem)
+                ainb_location: PackIndexEntry = dpg.get_item_user_data(textitem)
                 open_ainb_graph_window(None, None, ainb_location)
             dpg.add_item_clicked_handler(callback=callback_open_ainb)
 
@@ -58,7 +58,7 @@ def open_ainb_index_window():
                         with dpg.filter_set(tag=f"{ainb_index_window}/Root/Filter"):
                             cached_ainb_locations = ainb_cache["Pack"].get("Root", {})
                             for ainbfile, ainb_location in cached_ainb_locations.items():
-                                item = dpg.add_text(ainb_location.ainbfile, user_data=ainb_location, parent=f"{ainb_index_window}/Root/Filter", filter_key=ainb_location.ainbfile)
+                                item = dpg.add_text(ainb_location.internalfile, user_data=ainb_location, parent=f"{ainb_index_window}/Root/Filter", filter_key=ainb_location.internalfile)
                                 dpg.bind_item_handler_registry(item, open_ainb_handler)
 
 
@@ -66,7 +66,7 @@ def open_ainb_index_window():
                         with dpg.filter_set(tag=f"{ainb_index_window}/Global/Filter"):
                             cached_ainb_locations = ainb_cache["Pack"].get(global_packfile, {})
                             for ainbfile, ainb_location in cached_ainb_locations.items():
-                                item = dpg.add_text(ainb_location.ainbfile, user_data=ainb_location, parent=f"{ainb_index_window}/Global/Filter", filter_key=ainb_location.ainbfile)
+                                item = dpg.add_text(ainb_location.internalfile, user_data=ainb_location, parent=f"{ainb_index_window}/Global/Filter", filter_key=ainb_location.internalfile)
                                 dpg.bind_item_handler_registry(item, open_ainb_handler)
 
 
@@ -92,13 +92,13 @@ def open_ainb_index_window():
                             # Glob-like formatting, but just a literal search key: a.pack.zs:{one,two}
                             # This way we can show/hide the pack item itself based on all filenames within.
                             # Root+Global packs make sense to always display, so we don't do this for those
-                            filter_val = ",".join([al.ainbfile for al in cached_ainb_locations.values()])
+                            filter_val = ",".join([al.internalfile for al in cached_ainb_locations.values()])
                             filter_val = f"{packfile}:{{{filter_val}}}"
                             actor_pack_n += 1
                             with dpg.tree_node(label=label, default_open=(ainbcount <= 4), filter_key=filter_val):
                                 with dpg.filter_set(tag=f"{ainb_index_window}/PackActor/{actor_pack_n}/Filter"):
                                     for ainbfile, ainb_location in cached_ainb_locations.items():
-                                        item = dpg.add_text(ainb_location.ainbfile, user_data=ainb_location, bullet=True, filter_key=ainb_location.fullfile)
+                                        item = dpg.add_text(ainb_location.internalfile, user_data=ainb_location, bullet=True, filter_key=ainb_location.fullfile)
                                         dpg.bind_item_handler_registry(item, open_ainb_handler)
 
     return ainb_index_window

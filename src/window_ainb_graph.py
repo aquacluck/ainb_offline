@@ -48,7 +48,7 @@ PARAM_SECTION_DPG_ATTR_TYPE = {
 class RenderAinbNodeRequest:
     # ainb
     ainb: AINB
-    ainb_location: AinbIndexCacheEntry
+    ainb_location: PackIndexEntry
     aj: dict  # AINB.output_dict json
     category: str  # AI Logic Sequence
     # ainb node
@@ -60,14 +60,14 @@ class RenderAinbNodeRequest:
     node_tag_ns: str
 
 
-def open_ainb_graph_window(s, a, ainb_location: AinbIndexCacheEntry):
+def open_ainb_graph_window(s, a, ainb_location: PackIndexEntry):
     ectx = EditContext.get()
     if window_tag := ectx.get_ainb_window(ainb_location):
         dpg.focus_item(window_tag)
         return
 
     print(f"Opening {ainb_location.fullfile}")
-    category, ainbfile = pathlib.Path(ainb_location.ainbfile).parts
+    category, ainbfile = pathlib.Path(ainb_location.internalfile).parts
     ainb = ectx.load_ainb(ainb_location)
 
     if ainb_location.packfile == "Root":
@@ -151,10 +151,10 @@ def open_ainb_graph_window(s, a, ainb_location: AinbIndexCacheEntry):
     return ainb_window
 
 
-def add_ainb_nodes(ainb: AINB, ainb_location: AinbIndexCacheEntry, node_editor):
+def add_ainb_nodes(ainb: AINB, ainb_location: PackIndexEntry, node_editor):
     aj = ainb.output_dict  # ainb json. we call him aj
     ainb_tag_ns = f"{node_editor}/ainb0"
-    category, _ainbfile = pathlib.Path(ainb_location.ainbfile).parts
+    category, _ainbfile = pathlib.Path(ainb_location.internalfile).parts
 
     # TODO special layout+style for globals node (and move node nearby when hovering on a consuming param?)
     # TODO globals links, eg <Assassin_Senior.action.interuptlargedamage.module>.nodes[0].#ASCommand["Global Parameters Index"] == 0 points to $ASName="LargeDamagge"
@@ -326,7 +326,7 @@ def render_ainb_node_topmeta(req: RenderAinbNodeRequest) -> None:
                     #print(aref["Count"]) ...instance/link count? TODO
 
                     dest_ainbfile = aref["File Category"] + '/' + aref["File Path"]
-                    dest_location = scoped_ainbfile_lookup(AinbIndexCacheEntry(ainbfile=dest_ainbfile, packfile=req.ainb_location.packfile))
+                    dest_location = scoped_ainbfile_lookup(PackIndexEntry(internalfile=dest_ainbfile, packfile=req.ainb_location.packfile, extension="ainb"))
                     with dpg.group(horizontal=True):
                         dpg.add_text(f'@ ExternalAINB[{aref["File Category"]}] {aref["File Path"]}')
                         dpg.add_button(label="Open AINB", user_data=dest_location, callback=open_ainb_graph_window, arrow=True, direction=dpg.mvDir_Right)
