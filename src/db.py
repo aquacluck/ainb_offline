@@ -1,5 +1,6 @@
 import pathlib
 import sqlite3
+import threading
 from typing import *
 
 import dearpygui.dearpygui as dpg
@@ -8,16 +9,19 @@ from app_types import *
 from db_model_pack_index import PackIndex
 #from sqlite import *
 
+tls = threading.local()
 
 class Connection:
-    GLOBAL_INSTANCE: "Connection" = None  # singleton or something
     connection: sqlite3.Connection  = None
 
     @classmethod
     def get(cls):
-        if cls.GLOBAL_INSTANCE is not None:
-            return cls.GLOBAL_INSTANCE.connection
-        conn = cls.GLOBAL_INSTANCE = cls()
+        global tls
+        if not hasattr(tls, "GLOBAL_INSTANCE"):
+            tls.GLOBAL_INSTANCE = None
+        if tls.GLOBAL_INSTANCE is not None:
+            return tls.GLOBAL_INSTANCE.connection
+        conn = tls.GLOBAL_INSTANCE = cls()
         conn.db_init()
         return conn.connection
 
