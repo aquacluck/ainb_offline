@@ -102,6 +102,12 @@ AppStaticTextureKeys = ConstDottableStringSet({
 })
 
 
+AppStyleColors = ConstDottableDict({
+    # 32b rgba
+    "LIST_ENTRY_SEPARATOR": (128, 128, 128, 255),
+})
+
+
 @dataclass
 class AinbIndexCacheEntry:  # Basic info for each ainb file
     ainbfile: str # *.ainb, relative to romfs or pack root

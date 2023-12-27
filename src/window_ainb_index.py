@@ -16,7 +16,6 @@ def open_ainb_index_window():
     ainb_cache = get_ainb_index()
     title_version = dpg.get_value(AppConfigKeys.TITLE_VERSION)
     global_packfile = TitleVersionAiGlobalPack[title_version]
-    root_dirs = TitleVersionRootPackDirs[title_version]
 
     with dpg.child_window(label="AINB Index", pos=[0, 18], width=400, autosize_y=True) as ainb_index_window:
         # Opening ainb windows
@@ -27,47 +26,60 @@ def open_ainb_index_window():
                 open_ainb_graph_window(None, None, ainb_location)
             dpg.add_item_clicked_handler(callback=callback_open_ainb)
 
+
         # Quick search
         actor_pack_n = -1
         def callback_filter(sender, filter_string):
-            for cat in root_dirs:
-                dpg.set_value(f"{ainb_index_window}/Root/{cat}/Filter", filter_string)
+            if len(filter_string) < 3:
+                # Exclude slowest chars for perf, although short substrings can still be invoked after commas.
+                # We have no control over how search is performed, eg no way to use a db without reimplementing filtering.
+                filter_string = ""
+            dpg.set_value(f"{ainb_index_window}/Root/Filter", filter_string)
             dpg.set_value(f"{ainb_index_window}/Global/Filter", filter_string)
             dpg.set_value(f"{ainb_index_window}/PackActor/Filter", filter_string)
             for i in range(actor_pack_n):
                 dpg.set_value(f"{ainb_index_window}/PackActor/{i}/Filter", filter_string)
-        filter_input = dpg.add_input_text(label="Filter (inc, -exc)", callback=callback_filter)
+        # filter eg `-ai/, -logic/, localmodule, load`: any positive terms pass (union), matching all (intersection) not needed
+        filter_input = dpg.add_input_text(hint="any1, any2, -exclude (min 3 chars)", callback=callback_filter)
+
 
         with dpg.tab_bar():
             # dpg.add_tab_button(label="[max]", callback=dpg.maximize_viewport)  # works at runtime, fails at init?
             # dpg.add_tab_button(label="wipe cache")
-            for cat in root_dirs:
-                with dpg.tab(label=cat):
-                    with dpg.child_window(tag=f"{ainb_index_window}/Root/{cat}", autosize_x=True, autosize_y=True):
-                        with dpg.filter_set(tag=f"{ainb_index_window}/Root/{cat}/Filter"):
-                            pass
-
-            cached_ainb_locations = ainb_cache["Pack"].get("Root", {})
-            for ainbfile, ainb_location in cached_ainb_locations.items():
-                p = pathlib.Path(ainb_location.ainbfile)
-                label = p.name
-                cat, _ = p.parts
-                item = dpg.add_text(label, user_data=ainb_location, parent=f"{ainb_index_window}/Root/{cat}/Filter", filter_key=ainb_location.ainbfile)
-                dpg.bind_item_handler_registry(item, open_ainb_handler)
-
-            with dpg.tab(label=global_packfile[:-8]):
+            # dpg.add_tab_button(label="new ainb file")
+            # TODO with dpg.tab(label="Modded AINBs"):
+            #    # dirty indicators: working ainb is dirty (all edits), dirty ainb not present in modfs (first edit)
+            #    # context menu -> delete pack or ainb changes
+            #    # context menu -> re-calc romfs + edit_op history
+            with dpg.tab(label="All AINBs"):
                 with dpg.child_window(autosize_x=True, autosize_y=True):
-                    with dpg.filter_set(tag=f"{ainb_index_window}/Global/Filter"):
-                        cached_ainb_locations = ainb_cache["Pack"].get(global_packfile, {})
-                        for ainbfile, ainb_location in cached_ainb_locations.items():
-                            label = pathlib.Path(ainb_location.ainbfile).name
-                            item = dpg.add_text(label, user_data=ainb_location, filter_key=ainb_location.ainbfile)
-                            dpg.bind_item_handler_registry(item, open_ainb_handler)
+                    # TODO context menu -> re-crawl pack or ainb
+                    with dpg.tree_node(label="Root", default_open=True):
+                        with dpg.filter_set(tag=f"{ainb_index_window}/Root/Filter"):
+                            cached_ainb_locations = ainb_cache["Pack"].get("Root", {})
+                            for ainbfile, ainb_location in cached_ainb_locations.items():
+                                item = dpg.add_text(ainb_location.ainbfile, user_data=ainb_location, parent=f"{ainb_index_window}/Root/Filter", filter_key=ainb_location.ainbfile)
+                                dpg.bind_item_handler_registry(item, open_ainb_handler)
 
-            with dpg.tab(label="Pack/Actor"):
-                with dpg.child_window(autosize_x=True, autosize_y=True):
+
+                    with dpg.tree_node(label=global_packfile, default_open=True):
+                        with dpg.filter_set(tag=f"{ainb_index_window}/Global/Filter"):
+                            cached_ainb_locations = ainb_cache["Pack"].get(global_packfile, {})
+                            for ainbfile, ainb_location in cached_ainb_locations.items():
+                                item = dpg.add_text(ainb_location.ainbfile, user_data=ainb_location, parent=f"{ainb_index_window}/Global/Filter", filter_key=ainb_location.ainbfile)
+                                dpg.bind_item_handler_registry(item, open_ainb_handler)
+
+
+                    dpg.add_separator()
+                    dpg.add_separator()
+                    dpg.add_text("Actor Packs", indent=140, color=AppStyleColors.LIST_ENTRY_SEPARATOR)
+                    # TODO buttons to expand+close all trees
+                    dpg.add_separator()
+                    dpg.add_separator()
+
                     with dpg.filter_set(tag=f"{ainb_index_window}/PackActor/Filter"):
                         for packfile in sorted(pathlib.Path(f"{romfs}/Pack/Actor").rglob("*.pack.zs")):
+                            # XXX why so paranoid about only showing existing packs? can't we just loop through cache excluding global+root?
                             romfs_relative: str = os.path.join(*packfile.parts[-3:])
                             cached_ainb_locations = ainb_cache["Pack"].get(romfs_relative, {})
                             ainbcount = len(cached_ainb_locations)
@@ -78,6 +90,8 @@ def open_ainb_index_window():
                             label = f"{packname} [{ainbcount}]"
 
                             # Glob-like formatting, but just a literal search key: a.pack.zs:{one,two}
+                            # This way we can show/hide the pack item itself based on all filenames within.
+                            # Root+Global packs make sense to always display, so we don't do this for those
                             filter_val = ",".join([al.ainbfile for al in cached_ainb_locations.values()])
                             filter_val = f"{packfile}:{{{filter_val}}}"
                             actor_pack_n += 1
