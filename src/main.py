@@ -10,6 +10,7 @@ from app_ainb_cache import build_ainb_index_for_unknown_files
 from app_types import *
 from window_ainb_index import open_ainb_index_window
 from window_ainb_graph import open_ainb_graph_window
+from window_sql_shell import WindowSqlShell
 import edit_context
 
 
@@ -88,6 +89,7 @@ def main():
                 dpg.add_menu_item(label="Show Metrics", callback=lambda: dpg.show_tool(dpg.mvTool_Metrics))
                 dpg.add_menu_item(label="Show Style Editor", callback=lambda: dpg.show_tool(dpg.mvTool_Style))
                 dpg.add_menu_item(label="Show Font Manager", callback=lambda: dpg.show_tool(dpg.mvTool_Font))
+                dpg.add_menu_item(label="Show SQL Shell", callback=lambda: WindowSqlShell.create_anon_oneshot("SELECT sql FROM sqlite_master;"))
 
         ainb_index_window = open_ainb_index_window()
 

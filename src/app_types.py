@@ -104,6 +104,7 @@ AppStaticTextureKeys = ConstDottableStringSet({
 AppStyleColors = ConstDottableDict({
     # 32b rgba
     "LIST_ENTRY_SEPARATOR": (128, 128, 128, 255),
+    "ERRTEXT": (128, 0, 0, 255),
 })
 
 

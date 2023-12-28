@@ -30,7 +30,7 @@ class Connection:
         db_file = f"{appvar}/{title_version}/project.db"
         pathlib.Path(db_file).parent.mkdir(parents=True, exist_ok=True)
         # uhh this interpolation is gonna break what is this trash
-        self.connection = sqlite3.connect(f"file:{db_file}?mode=rwc&autocommit=false")
+        self.connection = sqlite3.connect(f"file:{db_file}?mode=rwc&autocommit=false&cache=shared")
         self.create_tables()
 
     def create_tables(self):
