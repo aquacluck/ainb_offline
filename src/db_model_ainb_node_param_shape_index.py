@@ -70,7 +70,14 @@ class AinbNodeParamShapeIndex:
     '''
 
     @classmethod
-    def persist_shape(cls, conn: sqlite3.Connection, node_type: str, param_details_json: str): # param_counts: Tuple[int]):
+    def persist_shape(cls, conn: sqlite3.Connection, node_type: str, param_details_json): # param_counts: Tuple[int]):
+
+        # overwrite to keep Name field only
+        for section, params in param_details_json.items():
+            for param_type, param_list in params.items():
+                for i, param in enumerate(param_list):
+                    param_list[i] = param.get("Name", "")
+
         conn.execute(f"""
             INSERT OR IGNORE INTO {cls.TABLE}
             (node_type, param_details_json /* { ", ".join(cls.INT_COLUMNS) } */)
