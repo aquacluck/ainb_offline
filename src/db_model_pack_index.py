@@ -33,17 +33,19 @@ class PackIndex:
         out = {"Root": {}}
         for packfile, internal_filename_csv in res:
             # Packs with no results stay empty like this, internal_filename_csv="" negative cache
+            packfile = PackIndexEntry.fix_backslashes(packfile)
             out[packfile] = {}
             if internal_filename_csv:
                 for internalfile in internal_filename_csv.split(","):
+                    internalfile = PackIndexEntry.fix_backslashes(internalfile)
                     out[packfile][internalfile] = PackIndexEntry(internalfile=internalfile, packfile=packfile, extension=ext)
         return out
 
     @classmethod
     def persist_one_pack_one_extension(cls, conn: sqlite3.Connection, packfile: str, extension: str,  internalfiles: List[str]):
         # packfile and extension must match across all internalfiles
-        internal_filename_csv = ",".join(internalfiles)
+        internal_filename_csv = ",".join([PackIndexEntry.fix_backslashes(f) for f in internalfiles])
         conn.execute(f"""
             INSERT OR REPLACE INTO {cls.TABLE}(packfile, extension, internal_filename_csv)
             VALUES (?, ?, ?);
-            """, (packfile, extension, internal_filename_csv))
+            """, (PackIndexEntry.fix_backslashes(packfile), extension, internal_filename_csv))

@@ -81,6 +81,7 @@ def open_ainb_index_window():
                         for packfile in sorted(pathlib.Path(f"{romfs}/Pack/Actor").rglob("*.pack.zs")):
                             # XXX why so paranoid about only showing existing packs? can't we just loop through cache excluding global+root?
                             romfs_relative: str = os.path.join(*packfile.parts[-3:])
+                            romfs_relative = PackIndexEntry.fix_backslashes(romfs_relative)
                             cached_ainb_locations = ainb_cache.get(romfs_relative, {})
                             ainbcount = len(cached_ainb_locations)
                             if ainbcount == 0:

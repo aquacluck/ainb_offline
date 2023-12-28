@@ -80,7 +80,7 @@ def open_ainb_graph_window(s, a, ainb_location: PackIndexEntry):
     def close(*_):
         ectx.unregister_ainb_window(ainb_location)
 
-    with dpg.window(label=window_label, width=800, height=600, pos=[600, 200], on_close=close) as ainb_window:
+    with dpg.window(label=window_label, width=1280, height=1080, pos=[600, 200], on_close=close) as ainb_window:
         ectx.register_ainb_window(ainb_location, ainb_window)
 
         def save_ainb():

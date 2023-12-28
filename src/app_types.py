@@ -1,6 +1,7 @@
 import colorsys
 from dataclasses import dataclass
 from typing import *
+import pathlib
 
 
 class ConstDottableStringSet(set):  # allows access by `self.foo` if "foo" in self
@@ -145,9 +146,21 @@ class PackIndexEntry:
     packfile: str  # romfs relative .pack.zs containing internalfile, or "Root"
     extension: str  # filetype
 
+    def __post_init__(self):
+        self.internalfile = self.fix_backslashes(self.internalfile)
+        self.packfile = self.fix_backslashes(self.packfile)
+
     @property
     def fullfile(self) -> str:
         return f"{self.packfile}:{self.internalfile}"
+
+    # Intended to normalize short relative paths so db files are compatible, Root pack vs real pack lookup consistency, etc
+    @staticmethod
+    def fix_backslashes(file: Union[str, pathlib.Path]) -> str:
+        f = str(file)
+        if "\\" not in f:
+            return f
+        return str(pathlib.PurePosixPath(*pathlib.PureWindowsPath(file).parts))
 
 
 @dataclass

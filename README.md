@@ -28,7 +28,6 @@ TITLE_VERSION=TOTK_100 python3 src/main.py
 ```
 
 Major limitations + known issues:
-- Untested on Windows. I suggest WSL2 Ubuntu 22.04 LTS for Windows users, this is where I run it
 - userdefined param type edits have not been tested
 - Missing: add/remove params, add/remove nodes, add/remove links
 - Missing: attachments, all things exb
@@ -39,7 +38,6 @@ Major limitations + known issues:
 
 Minor limitations + UX issues:
 - Missing: Undo/history. We're tracking edit operations, but not persisting/restoring/presenting any undo yet
-- Missing: Decent window management (eg maximize, open ainb list)
 - Missing: Decent dirty state management (eg dirty indicators, autosave/confirmation, ...)
 
 

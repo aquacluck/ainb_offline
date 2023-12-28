@@ -58,6 +58,7 @@ def build_ainb_index_for_unknown_files() -> None:
         for catdir in root_dirs:
             for ainbfile in sorted(pathlib.Path(f"{romfs}/{catdir}").rglob("*.ainb")):
                 romfs_relative: str = os.path.join(*ainbfile.parts[-2:])
+                romfs_relative = PackIndexEntry.fix_backslashes(romfs_relative)
                 entry_total += 1
                 root_all_locations.append(romfs_relative)
                 if ainb_cache["Root"].get(romfs_relative) is not None:
@@ -89,6 +90,7 @@ def build_ainb_index_for_unknown_files() -> None:
         log_feedback_letter = ''
         for abs_packfile in sorted(pathlib.Path(f"{romfs}/Pack/Actor").rglob("*.pack.zs")):
             packfile = os.path.join(*abs_packfile.parts[-3:])
+            packfile = PackIndexEntry.fix_backslashes(packfile)
             # Packs with no matches will be present with an empty {}, only unknown packs will be None, serving as negative cache
             cached_ainb_locations = ainb_cache.get(packfile, None)
             if cached_ainb_locations is None:

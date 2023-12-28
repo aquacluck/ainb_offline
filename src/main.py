@@ -60,6 +60,13 @@ def main():
         dpg.add_string_value(tag=AppConfigKeys.TITLE_VERSION, default_value=title_version)
 
 
+    # Stupid mapviz picker :D
+    if TitleVersionIsTotk(dpg.get_value(AppConfigKeys.TITLE_VERSION)):
+        with dpg.texture_registry():
+            width, height, channels, data = dpg.load_image("static/totkmap.png")
+            dpg.add_static_texture(width=width, height=height, default_value=data, tag=AppStaticTextureKeys.TOTK_MAP_PICKER_250)
+
+
     # Bring up sqlite3
     db.Connection.get()
 
@@ -71,13 +78,6 @@ def main():
     # Create edit context
     ectx = edit_context.EditContext()
     edit_context.active_ectx = ectx  # global via EditContext.get()
-
-
-    # Stupid mapviz picker :D
-    if TitleVersionIsTotk(dpg.get_value(AppConfigKeys.TITLE_VERSION)):
-        with dpg.texture_registry():
-            width, height, channels, data = dpg.load_image("static/totkmap.png")
-            dpg.add_static_texture(width=width, height=height, default_value=data, tag=AppStaticTextureKeys.TOTK_MAP_PICKER_250)
 
 
     # Main ui
@@ -110,14 +110,14 @@ def main():
         open_ainb_graph_window(None, None, ainb_location)
 
 
-    # Hand over control to dpg's main loop
     dpg.set_primary_window(primary_window, True)
     dpg.create_viewport(title="ainb offline", x_pos=0, y_pos=0, width=1600, height=1080, decorated=True, vsync=True)
+
     dpg.setup_dearpygui()
     dpg.show_viewport()
-    dpg.start_dearpygui()
-    dpg.maximize_viewport()
-    dpg.show_viewport(maximized=True)
+    dpg.set_frame_callback(1, lambda: dpg.maximize_viewport())
+
+    dpg.start_dearpygui() # dpg loop runs...
     dpg.destroy_context()
 
 
