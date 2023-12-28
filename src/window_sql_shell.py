@@ -81,7 +81,7 @@ class WindowSqlShell:
             entry = QueryHistoryEntry(tag=entry_tag)
             self.append_history(entry)
             qbox = dpg.add_input_text(tag=f"{entry_tag}/input", hint="select 420", callback=callback, on_enter=True, user_data=entry, width=-1)
-            dpg.add_text("", show=False, tag=f"{entry_tag}/error", color=AppStyleColors.ERRTEXT)
+            dpg.add_text("", show=False, tag=f"{entry_tag}/error", color=AppStyleColors.ERRTEXT.to_rgba32())
             dpg.add_group(show=False, tag=f"{entry_tag}/output")
             dpg.focus_item(qbox)
 

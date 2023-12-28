@@ -72,7 +72,7 @@ def open_ainb_index_window():
 
                     dpg.add_separator()
                     dpg.add_separator()
-                    dpg.add_text("Actor Packs", indent=140, color=AppStyleColors.LIST_ENTRY_SEPARATOR)
+                    dpg.add_text("Actor Packs", indent=140, color=AppStyleColors.LIST_ENTRY_SEPARATOR.to_rgba32())
                     # TODO buttons to expand+close all trees
                     dpg.add_separator()
                     dpg.add_separator()

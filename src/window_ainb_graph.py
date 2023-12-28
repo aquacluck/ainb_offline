@@ -1,3 +1,4 @@
+import functools
 import json
 import pathlib
 from typing import *
@@ -151,6 +152,20 @@ def open_ainb_graph_window(s, a, ainb_location: PackIndexEntry):
     return ainb_window
 
 
+@functools.cache
+def make_node_theme_for_hue(hue: AppColor):
+    with dpg.theme() as theme:
+        with dpg.theme_component(dpg.mvNode):
+            dpg.add_theme_color(dpg.mvNodeCol_TitleBar, hue.set_hsv(s=0.5, v=0.4).to_rgb24(), category=dpg.mvThemeCat_Nodes)
+            dpg.add_theme_color(dpg.mvNodeCol_TitleBarHovered, hue.set_hsv(s=0.5, v=0.5).to_rgb24(), category=dpg.mvThemeCat_Nodes)
+            dpg.add_theme_color(dpg.mvNodeCol_TitleBarSelected, hue.set_hsv(s=0.4, v=0.55).to_rgb24(), category=dpg.mvThemeCat_Nodes)
+
+            dpg.add_theme_color(dpg.mvNodeCol_NodeBackground, hue.set_hsv(s=0.15, v=0.3).to_rgb24(), category=dpg.mvThemeCat_Nodes)
+            dpg.add_theme_color(dpg.mvNodeCol_NodeBackgroundHovered, hue.set_hsv(s=0.1, v=0.35).to_rgb24(), category=dpg.mvThemeCat_Nodes)
+            dpg.add_theme_color(dpg.mvNodeCol_NodeBackgroundSelected, hue.set_hsv(s=0.1, v=0.35).to_rgb24(), category=dpg.mvThemeCat_Nodes)
+    return theme
+
+
 def add_ainb_nodes(ainb: AINB, ainb_location: PackIndexEntry, node_editor):
     aj = ainb.output_dict  # ainb json. we call him aj
     ainb_tag_ns = f"{node_editor}/ainb0"
@@ -161,7 +176,11 @@ def add_ainb_nodes(ainb: AINB, ainb_location: PackIndexEntry, node_editor):
     # Render globals as a type of node? Not sure if dumb, we do need to link/associate globals into nodes anyways somehow
     if aj.get(PARAM_SECTION_NAME.GLOBAL):
         globals_tag_ns = f"{ainb_tag_ns}/Globals"
+
+        globals_node_theme = make_node_theme_for_hue(AppStyleColors.GRAPH_GLOBALS_HUE)
         dpg.add_node(tag=f"{globals_tag_ns}/Node", label=PARAM_SECTION_NAME.GLOBAL, parent=node_editor)
+        dpg.bind_item_theme(f"{globals_tag_ns}/Node", globals_node_theme)
+
         render_ainb_node_param_section(RenderAinbNodeRequest(
             # ainb
             ainb=ainb,
@@ -209,11 +228,9 @@ def render_ainb_node(req: RenderAinbNodeRequest) -> List[DeferredNodeLinkCall]:
     node_type = req.aj_node["Node Type"]
     node_name = req.aj_node["Name"]
     if node_type == "UserDefined":
-        label = f'"{node_name}"({req.node_i})'
-    elif node_name == "":
-        label = f"{node_type}({req.node_i})"
+        label = f"{node_name} ({req.node_i})"
     else:
-        label = f"{node_type}({req.node_i}): {node_name}"
+        label = f"{node_type} ({req.node_i})"
 
     with dpg.node(tag=f"{req.node_tag_ns}/Node", label=label, parent=req.node_editor) as node_tag_:
         render_ainb_node_topmeta(req)
@@ -313,6 +330,8 @@ def render_ainb_node_topmeta(req: RenderAinbNodeRequest) -> None:
             if req.node_i == command["Left Node Index"]:
                 cmd_name = command["Name"]
                 dpg.add_text(f"@ Command[{cmd_name}]")
+                command_node_theme = make_node_theme_for_hue(AppStyleColors.GRAPH_COMMAND_HUE)
+                dpg.bind_item_theme(f"{req.node_tag_ns}/Node", command_node_theme)
 
 
         for aj_flag in req.aj_node.get("Flags", []):
@@ -328,6 +347,9 @@ def render_ainb_node_topmeta(req: RenderAinbNodeRequest) -> None:
                     with dpg.group(horizontal=True):
                         dpg.add_text(f'@ ExternalAINB[{aref["File Category"]}] {aref["File Path"]}')
                         dpg.add_button(label="Open AINB", user_data=dest_location, callback=open_ainb_graph_window, arrow=True, direction=dpg.mvDir_Right)
+
+                    external_ainb_theme = make_node_theme_for_hue(AppStyleColors.GRAPH_MODULE_HUE)
+                    dpg.bind_item_theme(f"{req.node_tag_ns}/Node", external_ainb_theme)
             else:
                 dpg.add_text(f"@ {aj_flag}")
 

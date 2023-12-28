@@ -1,3 +1,4 @@
+import colorsys
 from dataclasses import dataclass
 from typing import *
 
@@ -101,10 +102,40 @@ AppStaticTextureKeys = ConstDottableStringSet({
 })
 
 
+@dataclass(frozen=True)
+class AppColor:
+    h: float
+    s: float
+    v: float
+
+    @classmethod
+    def from_hsv(cls, hsv: List[float]):
+        return cls(*hsv)
+
+    @classmethod
+    def from_rgb24(cls, rgb: List[int]):
+        hsv = colorsys.rgb_to_hsv(*[x/255. for x in rgb])
+        return cls(*hsv)
+
+    def to_rgb24(self) -> List[int]:
+        rgb: List[float] = colorsys.hsv_to_rgb(self.h, self.s, self.v)
+        return [int(x*255) for x in rgb]
+
+    def to_rgba32(self, a: float = 1.0) -> List[int]:
+        rgb: List[float] = colorsys.hsv_to_rgb(self.h, self.s, self.v)
+        return [int(x*255) for x in rgb] + [int(a*255)]
+
+    def set_hsv(self, h=None, s=None, v=None):
+        return AppColor(h or self.h, s or self.s, v or self.v)
+
+
 AppStyleColors = ConstDottableDict({
     # 32b rgba
-    "LIST_ENTRY_SEPARATOR": (128, 128, 128, 255),
-    "ERRTEXT": (128, 0, 0, 255),
+    "LIST_ENTRY_SEPARATOR": AppColor.from_hsv([0, 0, 0.5]),
+    "ERRTEXT": AppColor.from_rgb24([128, 0, 0]),
+    "GRAPH_GLOBALS_HUE": AppColor.from_rgb24([0, 255, 0]),
+    "GRAPH_COMMAND_HUE": AppColor.from_rgb24([128, 0, 255]),
+    "GRAPH_MODULE_HUE": AppColor.from_rgb24([255, 160, 0]),
 })
 
 
