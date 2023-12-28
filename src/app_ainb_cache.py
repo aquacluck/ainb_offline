@@ -7,7 +7,7 @@ import dearpygui.dearpygui as dpg
 
 from app_types import *
 import db
-from db_model_ainb_node_param_shape_index import AinbNodeParamShape, AinbNodeParamShapeIndex
+from db_model_ainb_node_param_shape_index import AinbNodeParamShapeIndex
 from db_model_pack_index import PackIndex
 from dt_ainb.ainb import AINB
 import pack_util
@@ -135,9 +135,8 @@ def inspect_ainb_pack(conn, rootfs: str, packfile: str, pack_data: Dict[str, mem
 
         for aj_node in ainb.output_dict.get("Nodes", []):
             node_type = aj_node["Node Type"]
-            if node_is_userdefined := (node_type == "UserDefined"):
-                if node_name := aj_node["Name"]:
-                    node_type = node_name
+            if node_type == "UserDefined":
+                node_type = aj_node["Name"]
 
             param_counts = [0] * len(int_columns)
 
@@ -156,6 +155,14 @@ def inspect_ainb_pack(conn, rootfs: str, packfile: str, pack_data: Dict[str, mem
                 i = int_columns.index(col)
                 param_counts[i] = len(aj_params)
 
+            param_details = {}
+            if x := aj_node.get(PARAM_SECTION_NAME.IMMEDIATE):
+                param_details[PARAM_SECTION_NAME.IMMEDIATE] = x
+            if x := aj_node.get(PARAM_SECTION_NAME.INPUT):
+                param_details[PARAM_SECTION_NAME.INPUT] = x
+            if x := aj_node.get(PARAM_SECTION_NAME.OUTPUT):
+                param_details[PARAM_SECTION_NAME.OUTPUT] = x
+
             # aj_node.get("Linked Nodes", {})
-            AinbNodeParamShapeIndex.persist_shape(conn, node_type, node_is_userdefined, param_counts)
+            AinbNodeParamShapeIndex.persist_shape(conn, node_type, param_details)
 
