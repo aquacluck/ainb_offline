@@ -116,17 +116,3 @@ ParamSectionName = ConstDottableDict({
     "OUTPUT": "Output Parameters",
     # "LINK": "Linked Nodes"
 })
-
-
-TitleVersionIsTotk = lambda s: s.startswith("TOTK_")
-TitleVersionIsWonder = lambda s: s.startswith("WONDER_")
-TitleVersions = ConstDottableStringSet({
-    "TOTK_100",
-    "TOTK_110",
-    "TOTK_111",
-    "TOTK_112",
-    "TOTK_120",
-    "TOTK_121",
-    "WONDER_100",
-    "WONDER_101",
-})

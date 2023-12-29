@@ -25,7 +25,7 @@ def scoped_pack_lookup(req: PackIndexEntry) -> PackIndexEntry:
     # Can inject any other "global" packed resources per extension/format/etc here
     if req.extension == "ainb":
         # Then check AI/Global pack
-        global_packfile = TitleVersionAiGlobalPack.get(dpg.get_value(AppConfigKeys.TITLE_VERSION))
+        global_packfile = TitleVersion.get().ai_global_pack
         if entry := pack_index.get(global_packfile, {}).get(req.internalfile):
             return entry
 
@@ -53,7 +53,7 @@ def build_ainb_index_for_unknown_files() -> None:
         root_all_locations = [] # Hits and misses are both accumulated for pack index because all filenames are persisted together
         root_new_locations = [] # But for ainb node inspection we can't open them all up every time
         # We don't do this for real packs, opening them all up to compare filenames would be a massive waste of time.
-        root_dirs = TitleVersionRootPackDirs.get(dpg.get_value(AppConfigKeys.TITLE_VERSION))
+        root_dirs = TitleVersion.get().root_pack_dirs
         print(f"Crawling Root {root_dirs} AINBs ", end='', flush=True)
         for catdir in root_dirs:
             for ainbfile in sorted(pathlib.Path(f"{romfs}/{catdir}").rglob("*.ainb")):
@@ -71,7 +71,7 @@ def build_ainb_index_for_unknown_files() -> None:
         print("")  # \n
 
         # Global pack ainb
-        packfile = TitleVersionAiGlobalPack.get(dpg.get_value(AppConfigKeys.TITLE_VERSION))
+        packfile = TitleVersion.get().ai_global_pack
         print(f"Crawling {packfile} AINBs ", end='', flush=True)
         # Packs with no matches will be present with an empty {}, only unknown packs will be None, serving as negative cache
         cached_ainb_locations = ainb_cache.get(packfile, None)

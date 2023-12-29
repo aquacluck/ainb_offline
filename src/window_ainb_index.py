@@ -14,8 +14,7 @@ from window_ainb_graph import open_ainb_graph_window
 def open_ainb_index_window():
     romfs = dpg.get_value(AppConfigKeys.ROMFS_PATH)
     ainb_cache = get_pack_index_by_extension("ainb")
-    title_version = dpg.get_value(AppConfigKeys.TITLE_VERSION)
-    global_packfile = TitleVersionAiGlobalPack[title_version]
+    global_packfile = TitleVersion.get().ai_global_pack
 
     with dpg.child_window(label="AINB Index", pos=[0, 18], width=400, autosize_y=True) as ainb_index_window:
         # Opening ainb windows

@@ -418,7 +418,7 @@ def render_ainb_node_param_section(req: RenderAinbNodeRequest, param_section: Pa
                         # dpg creates hidden popup windows for every vec3f which don't get cleaned up when the ainb window closes.
                         # It's not worth leaking this much, TODO clean these up
                         """
-                        if TitleVersionIsTotk(dpg.get_value(AppConfigKeys.TITLE_VERSION)):
+                        if TitleVersion.get().is_totk:
                             # invisible input that maintains a flipped north/south axis
                             ui_input_inverted = f"{ui_input_tag}/mapviz/inverted"
                             do_map_inversion = lambda d: (d[0], d[1], -1 * d[2], d[3])

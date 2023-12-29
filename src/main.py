@@ -47,21 +47,21 @@ def main():
     # Determine romfs title+version
     romfs = dpg.get_value(AppConfigKeys.ROMFS_PATH)
     title_version = os.environ.get("TITLE_VERSION")  # Set this to suppress probing {romfs}/RSDB
+    title_version = TitleVersion.lookup(title_version) if title_version else None
     if not title_version:
-        for tv in TitleVersions:
-            file = TitleVersionIdentifyingFiles[tv]
-            if pathlib.Path(f"{romfs}/{file}").exists():
+        for tv in TitleVersion.all():
+            if pathlib.Path(f"{romfs}/{tv.identifying_file}").exists():
                 title_version = tv
                 break
     if not title_version:
         raise Exception(f"Version detection failed for romfs={romfs}")
     with dpg.value_registry():
         print(f"Title version {title_version}")
-        dpg.add_string_value(tag=AppConfigKeys.TITLE_VERSION, default_value=title_version)
+        dpg.add_string_value(tag=AppConfigKeys.TITLE_VERSION, default_value=str(title_version))
 
 
     # Stupid mapviz picker :D
-    if TitleVersionIsTotk(dpg.get_value(AppConfigKeys.TITLE_VERSION)):
+    if TitleVersion.get().is_totk:
         with dpg.texture_registry():
             width, height, channels, data = dpg.load_image("static/totkmap.png")
             dpg.add_static_texture(width=width, height=height, default_value=data, tag=AppStaticTextureKeys.TOTK_MAP_PICKER_250)

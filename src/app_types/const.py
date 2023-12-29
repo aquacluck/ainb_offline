@@ -1,51 +1,101 @@
+import dearpygui.dearpygui as dpg
+
 from .types import *
 
 
-TitleVersionAiGlobalPack = ConstDottableDict({
-    TitleVersions.TOTK_100: "Pack/AI.Global.Product.100.pack.zs",
-    TitleVersions.TOTK_110: "Pack/AI.Global.Product.110.pack.zs",
-    TitleVersions.TOTK_111: "Pack/AI.Global.Product.110.pack.zs",
-    TitleVersions.TOTK_112: "Pack/AI.Global.Product.110.pack.zs",
-    TitleVersions.TOTK_120: "Pack/AI.Global.Product.120.pack.zs",
-    TitleVersions.TOTK_121: "Pack/AI.Global.Product.120.pack.zs",
-    TitleVersions.WONDER_100: "Pack/AIGameCommon.pack.zs",
-    TitleVersions.WONDER_101: "Pack/AIGameCommon.pack.zs",
-})
+class TitleVersion(str):
+    NAMES = ConstDottableStringSet({
+        "TOTK_100",
+        "TOTK_110",
+        "TOTK_111",
+        "TOTK_112",
+        "TOTK_120",
+        "TOTK_121",
+        "WONDER_100",
+        "WONDER_101",
+    })
 
+    AI_GLOBAL_PACK = ConstDottableDict({
+        NAMES.TOTK_100: "Pack/AI.Global.Product.100.pack.zs",
+        NAMES.TOTK_110: "Pack/AI.Global.Product.110.pack.zs",
+        NAMES.TOTK_111: "Pack/AI.Global.Product.110.pack.zs",
+        NAMES.TOTK_112: "Pack/AI.Global.Product.110.pack.zs",
+        NAMES.TOTK_120: "Pack/AI.Global.Product.120.pack.zs",
+        NAMES.TOTK_121: "Pack/AI.Global.Product.120.pack.zs",
+        NAMES.WONDER_100: "Pack/AIGameCommon.pack.zs",
+        NAMES.WONDER_101: "Pack/AIGameCommon.pack.zs",
+    })
 
-TitleVersionIdentifyingFiles = ConstDottableDict({
-    TitleVersions.TOTK_100: "Pack/AI.Global.Product.100.pack.zs",
-    TitleVersions.TOTK_110: "RSDB/LoadingTips.Product.110.rstbl.byml.zs",
-    TitleVersions.TOTK_111: "RSDB/LoadingTips.Product.111.rstbl.byml.zs",
-    TitleVersions.TOTK_112: "RSDB/LoadingTips.Product.112.rstbl.byml.zs",
-    TitleVersions.TOTK_120: "RSDB/LoadingTips.Product.120.rstbl.byml.zs",
-    TitleVersions.TOTK_121: "RSDB/LoadingTips.Product.121.rstbl.byml.zs",
-    TitleVersions.WONDER_100: "RSDB/StageInfo.Product.100.rstbl.byml.zs",
-    TitleVersions.WONDER_101: "RSDB/StageInfo.Product.101.rstbl.byml.zs",  # XXX guessed
-})
+    IDENTIFYING_FILE = ConstDottableDict({
+        NAMES.TOTK_100: "Pack/AI.Global.Product.100.pack.zs",
+        NAMES.TOTK_110: "RSDB/LoadingTips.Product.110.rstbl.byml.zs",
+        NAMES.TOTK_111: "RSDB/LoadingTips.Product.111.rstbl.byml.zs",
+        NAMES.TOTK_112: "RSDB/LoadingTips.Product.112.rstbl.byml.zs",
+        NAMES.TOTK_120: "RSDB/LoadingTips.Product.120.rstbl.byml.zs",
+        NAMES.TOTK_121: "RSDB/LoadingTips.Product.121.rstbl.byml.zs",
+        NAMES.WONDER_100: "RSDB/StageInfo.Product.100.rstbl.byml.zs",
+        NAMES.WONDER_101: "RSDB/StageInfo.Product.101.rstbl.byml.zs",  # XXX guessed
+    })
 
+    ROOT_PACK_DIRS = ConstDottableDict({
+        NAMES.TOTK_100: ("AI", "Logic", "Sequence"),
+        NAMES.TOTK_110: ("AI", "Logic", "Sequence"),
+        NAMES.TOTK_111: ("AI", "Logic", "Sequence"),
+        NAMES.TOTK_112: ("AI", "Logic", "Sequence"),
+        NAMES.TOTK_120: ("AI", "Logic", "Sequence"),
+        NAMES.TOTK_121: ("AI", "Logic", "Sequence"),
+        NAMES.WONDER_100: ("AI",),
+        NAMES.WONDER_101: ("AI",),
+    })
 
-TitleVersionRootPackDirs = ConstDottableDict({
-    TitleVersions.TOTK_100: ("AI", "Logic", "Sequence"),
-    TitleVersions.TOTK_110: ("AI", "Logic", "Sequence"),
-    TitleVersions.TOTK_111: ("AI", "Logic", "Sequence"),
-    TitleVersions.TOTK_112: ("AI", "Logic", "Sequence"),
-    TitleVersions.TOTK_120: ("AI", "Logic", "Sequence"),
-    TitleVersions.TOTK_121: ("AI", "Logic", "Sequence"),
-    TitleVersions.WONDER_100: ("AI",),
-    TitleVersions.WONDER_101: ("AI",),
-})
+    ZSDIC_PACK = ConstDottableDict({
+        NAMES.TOTK_100: "Pack/ZsDic.pack.zs",
+        NAMES.TOTK_110: "Pack/ZsDic.pack.zs",
+        NAMES.TOTK_111: "Pack/ZsDic.pack.zs",
+        NAMES.TOTK_112: "Pack/ZsDic.pack.zs",
+        NAMES.TOTK_120: "Pack/ZsDic.pack.zs",
+        NAMES.TOTK_121: "Pack/ZsDic.pack.zs",
+        # NAMES.WONDER_* do not use zstd dicts
+    })
 
+    @classmethod
+    def all(cls) -> "List[TitleVersion]":
+        return [cls.lookup(v) for v in cls.NAMES]
 
-TitleVersionZsDicPack = ConstDottableDict({
-    TitleVersions.TOTK_100: "Pack/ZsDic.pack.zs",
-    TitleVersions.TOTK_110: "Pack/ZsDic.pack.zs",
-    TitleVersions.TOTK_111: "Pack/ZsDic.pack.zs",
-    TitleVersions.TOTK_112: "Pack/ZsDic.pack.zs",
-    TitleVersions.TOTK_120: "Pack/ZsDic.pack.zs",
-    TitleVersions.TOTK_121: "Pack/ZsDic.pack.zs",
-    # TitleVersions.WONDER_* do not use zstd dicts
-})
+    @classmethod
+    def get(cls) -> "TitleVersion":
+        # not const uh oh
+        return cls.lookup(dpg.get_value(AppConfigKeys.TITLE_VERSION))
+
+    @classmethod
+    def lookup(cls, v: str) -> "TitleVersion":
+        if v in cls.NAMES:
+            return cls(v)
+        raise ValueError(f"Unsupported TitleVersion: {v}")
+
+    @property
+    def is_totk(self) -> bool:
+        return self.startswith("TOTK_")
+
+    @property
+    def is_wonder(self) -> bool:
+        return self.startswith("WONDER_")
+
+    @property
+    def ai_global_pack(self) -> str:
+        return self.AI_GLOBAL_PACK.get(str(self))
+
+    @property
+    def identifying_file(self) -> str:
+        return self.IDENTIFYING_FILE.get(str(self))
+
+    @property
+    def root_pack_dirs(self) -> str:
+        return self.ROOT_PACK_DIRS.get(str(self))
+
+    @property
+    def zsdic_pack(self) -> Optional[str]:
+        return self.ZSDIC_PACK.get(str(self))
 
 
 AppErrorStrings = ConstDottableDict({

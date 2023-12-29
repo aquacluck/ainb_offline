@@ -11,7 +11,7 @@ from app_types import *
 
 @functools.lru_cache
 def get_zsdics() -> Dict[str, zstd.ZstdCompressionDict]:
-    zsdic_pack = TitleVersionZsDicPack.get(dpg.get_value(AppConfigKeys.TITLE_VERSION))
+    zsdic_pack = TitleVersion.get().zsdic_pack
     if not zsdic_pack:
         return dict()
 
