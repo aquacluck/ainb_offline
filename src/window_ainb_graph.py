@@ -16,17 +16,17 @@ from app_types import *
 # Legend:
 # _nnn per-mode-per-type counter on params, like ainb indexing
 # @ flags and node meta
-PARAM_SECTION_LEGEND = {
-    PARAM_SECTION_NAME.GLOBAL: "$",
-    PARAM_SECTION_NAME.IMMEDIATE: "#",
-    PARAM_SECTION_NAME.INPUT: "I",
-    PARAM_SECTION_NAME.OUTPUT: "O",
+ParamSectionLegend = {
+    ParamSectionName.GLOBAL: "$",
+    ParamSectionName.IMMEDIATE: "#",
+    ParamSectionName.INPUT: "I",
+    ParamSectionName.OUTPUT: "O",
 }
-PARAM_SECTION_DPG_ATTR_TYPE = {
-    PARAM_SECTION_NAME.GLOBAL: dpg.mvNode_Attr_Static,
-    PARAM_SECTION_NAME.IMMEDIATE: dpg.mvNode_Attr_Static,
-    PARAM_SECTION_NAME.INPUT: dpg.mvNode_Attr_Input,
-    PARAM_SECTION_NAME.OUTPUT: dpg.mvNode_Attr_Output,
+ParamSectionDpgAttrType = {
+    ParamSectionName.GLOBAL: dpg.mvNode_Attr_Static,
+    ParamSectionName.IMMEDIATE: dpg.mvNode_Attr_Static,
+    ParamSectionName.INPUT: dpg.mvNode_Attr_Input,
+    ParamSectionName.OUTPUT: dpg.mvNode_Attr_Output,
 }
 #
 # All dpg.node contents must be inside a dpg.node_attribute, which can make things weird.
@@ -122,6 +122,12 @@ def open_ainb_graph_window(s, a, ainb_location: PackIndexEntry):
                     def delink_callback(sender, app_data):
                         dpg.delete_item(app_data)
 
+                    # TODO top bar, might replace tabs?
+                    # - "jump to" node list dropdown
+                    # - add node button with searchable popup for node type
+                    # - save to modfs button, dirty indicator
+                    # - "{}" json button?
+
                     # Main graph ui + rendering nodes
                     node_editor = f"{ainb_window}/tabs/graph/editor"
                     dpg.add_node_editor(
@@ -174,11 +180,11 @@ def add_ainb_nodes(ainb: AINB, ainb_location: PackIndexEntry, node_editor):
     # TODO special layout+style for globals node (and move node nearby when hovering on a consuming param?)
     # TODO globals links, eg <Assassin_Senior.action.interuptlargedamage.module>.nodes[0].#ASCommand["Global Parameters Index"] == 0 points to $ASName="LargeDamagge"
     # Render globals as a type of node? Not sure if dumb, we do need to link/associate globals into nodes anyways somehow
-    if aj.get(PARAM_SECTION_NAME.GLOBAL):
+    if aj.get(ParamSectionName.GLOBAL):
         globals_tag_ns = f"{ainb_tag_ns}/Globals"
 
         globals_node_theme = make_node_theme_for_hue(AppStyleColors.GRAPH_GLOBALS_HUE)
-        dpg.add_node(tag=f"{globals_tag_ns}/Node", label=PARAM_SECTION_NAME.GLOBAL, parent=node_editor)
+        dpg.add_node(tag=f"{globals_tag_ns}/Node", label=ParamSectionName.GLOBAL, parent=node_editor)
         dpg.bind_item_theme(f"{globals_tag_ns}/Node", globals_node_theme)
 
         render_ainb_node_param_section(RenderAinbNodeRequest(
@@ -194,7 +200,7 @@ def add_ainb_nodes(ainb: AINB, ainb_location: PackIndexEntry, node_editor):
             node_editor=node_editor,
             ainb_tag_ns=ainb_tag_ns,
             node_tag_ns=globals_tag_ns,
-        ), PARAM_SECTION_NAME.GLOBAL)
+        ), ParamSectionName.GLOBAL)
 
     # needed somewhere to throw a lot of vars...
     render_reqs = [RenderAinbNodeRequest(
@@ -234,9 +240,9 @@ def render_ainb_node(req: RenderAinbNodeRequest) -> List[DeferredNodeLinkCall]:
 
     with dpg.node(tag=f"{req.node_tag_ns}/Node", label=label, parent=req.node_editor) as node_tag_:
         render_ainb_node_topmeta(req)
-        render_ainb_node_param_section(req, PARAM_SECTION_NAME.IMMEDIATE)
-        render_ainb_node_param_section(req, PARAM_SECTION_NAME.INPUT)
-        render_ainb_node_param_section(req, PARAM_SECTION_NAME.OUTPUT)
+        render_ainb_node_param_section(req, ParamSectionName.IMMEDIATE)
+        render_ainb_node_param_section(req, ParamSectionName.INPUT)
+        render_ainb_node_param_section(req, ParamSectionName.OUTPUT)
 
         for aj_link_type, aj_links in req.aj_node.get("Linked Nodes", {}).items():
             for i_of_link_type, aj_link in enumerate(aj_links):
@@ -361,7 +367,7 @@ def render_ainb_node_topmeta(req: RenderAinbNodeRequest) -> None:
 #     entry["Multi Count"] = entry["Parameter Index"]
 # AI/PhantomGanon.metaai.root.json node 33 is its own precon?
 # TODO Set Pointer Flag Bit Zero, maybe more
-def render_ainb_node_param_section(req: RenderAinbNodeRequest, param_section: PARAM_SECTION_NAME):
+def render_ainb_node_param_section(req: RenderAinbNodeRequest, param_section: ParamSectionName):
     typed_params: Dict[str, List[Dict]] = req.aj_node.get(param_section, {})
     for aj_type, aj_params in typed_params.items():
         i_of_type = -1
@@ -371,14 +377,14 @@ def render_ainb_node_param_section(req: RenderAinbNodeRequest, param_section: PA
             param_name = aj_param.get("Name", AppErrorStrings.FAILNULL)
 
             # How defaults are named in this param section's json
-            param_default_name = "Default Value" if param_section == PARAM_SECTION_NAME.GLOBAL else "Value"
+            param_default_name = "Default Value" if param_section == ParamSectionName.GLOBAL else "Value"
 
             # TODO displaying nulls + ui for nulling values
             # Some dpg inputs (eg int) blow up when given a null, so we awkwardly omit any null arg
             v = aj_param.get(param_default_name)
             dpg_default_value_kwarg = {"default_value": v} if v is not None else {}
 
-            ui_label = f"{PARAM_SECTION_LEGEND[param_section]} {aj_type} {i_of_type}: {param_name}"
+            ui_label = f"{ParamSectionLegend[param_section]} {aj_type} {i_of_type}: {param_name}"
             op_selector = ("Nodes", req.node_i, param_section, aj_type, i_of_type, param_default_name)
 
             def on_edit(sender, data, op_selector):
@@ -392,8 +398,8 @@ def render_ainb_node_param_section(req: RenderAinbNodeRequest, param_section: PA
 
             node_attr_tag_ns = f"{req.node_tag_ns}/Params/{param_section}/{param_name}"
             ui_input_tag = f"{node_attr_tag_ns}/ui_input"
-            with dpg.node_attribute(tag=node_attr_tag_ns, parent=f"{req.node_tag_ns}/Node", attribute_type=PARAM_SECTION_DPG_ATTR_TYPE[param_section]):
-                if param_section == PARAM_SECTION_NAME.OUTPUT:
+            with dpg.node_attribute(tag=node_attr_tag_ns, parent=f"{req.node_tag_ns}/Node", attribute_type=ParamSectionDpgAttrType[param_section]):
+                if param_section == ParamSectionName.OUTPUT:
                     # not much to show unless we're planning to execute the graph?
                     dpg.add_text(ui_label)
 

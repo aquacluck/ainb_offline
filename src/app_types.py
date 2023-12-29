@@ -90,7 +90,7 @@ AppErrorStrings = ConstDottableDict({
 })
 
 
-PARAM_SECTION_NAME = ConstDottableDict({
+ParamSectionName = ConstDottableDict({
     "GLOBAL": "Global Parameters",
     "IMMEDIATE": "Immediate Parameters",
     "INPUT": "Input Parameters",
