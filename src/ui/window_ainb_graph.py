@@ -130,6 +130,9 @@ class WindowAinbGraph:
             if entered_tab == f"{self.tag}/tabs/json" and is_autodump:
                 self.redump_json_textbox()
 
+        # from .db.ainb_file_param_name_usage_index import AinbFileParamNameUsageIndex
+        # node_usages = AinbFileParamNameUsageIndex.get_node_types(db.Connection.get(), "AI")
+
         with dpg.tab_bar(tag=f"{self.tag}/tabs", parent=self.tag, callback=_tab_change):
             # dpg.add_tab_button(label="[max]", callback=dpg.maximize_viewport)  # works at runtime, fails at init?
             # dpg.add_tab_button(label="wipe cache")

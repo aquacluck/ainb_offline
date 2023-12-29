@@ -111,6 +111,7 @@ class EditContext:
         elif edit_op.op_type == AinbEditOperationTypes.PARAM_UPDATE_DEFAULT:
             # TODO generalize this into any path assignment? creating missing objs + being careful w mutability/refs...
             # For now we just hardcode support for the selector shapes we use.
+            # should steal the path format even if we don't use this: https://www.sqlite.org/json1.html
             print(f"param default = {edit_op.op_value} @ {edit_op.op_selector}")
             sel = edit_op.op_selector
             if len(sel) != 6 or sel[0] != "Nodes" or sel[-1] not in ("Value", "Default Value"):

@@ -8,7 +8,7 @@ from typing import *
 import dearpygui.dearpygui as dpg
 
 from .app_types import *
-from .db import Connection, AinbFileNodeUsageIndex, PackIndex
+from .db import Connection, AinbFileNodeUsageIndex, AinbFileParamNameUsageIndex, PackIndex
 from .dt_ainb.ainb import AINB
 from . import pack_util
 
@@ -104,10 +104,11 @@ def build_ainb_index_for_unknown_files() -> None:
                 print(log_feedback_letter, end='', flush=True)
         print("")  # \n
 
-    if entry_hit < entry_total:
-        print(f"Cached {entry_total-entry_hit} new entries\n", flush=True)
-    else:
-        print(f"Cache hits {entry_hit}/{entry_total}\n", flush=True)
+        if entry_hit < entry_total:
+            AinbFileParamNameUsageIndex.postprocess(conn)
+            print(f"Caching {entry_total-entry_hit} new entries", flush=True)
+
+    print(f"Cache hits {entry_hit}/{entry_total}\n", flush=True)
 
 
 def inspect_ainb_pack(conn: sqlite3.Connection, rootfs: str, packfile: str, pack_data: Dict[str, memoryview]):
@@ -159,6 +160,6 @@ def inspect_ainb_pack(conn: sqlite3.Connection, rootfs: str, packfile: str, pack
                         param_list[i] = param.get("Name", "")
 
             # Index every node call's source, node, params
-            # Show highest ranked names per category for node creation, with option to copy full params?
-            AinbFileNodeUsageIndex.persist(conn, fullfile, file_category, node_type, node_i, param_names, param_details)
+            # not actually using this yet #AinbFileNodeUsageIndex.persist(conn, fullfile, file_category, node_type, node_i, param_details)
+            AinbFileParamNameUsageIndex.persist(conn, file_category, node_type, param_names)
 

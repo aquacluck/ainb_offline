@@ -22,7 +22,7 @@ class PackIndex:
         # {"Pack/Actor/DgnObj_UrMom.pack.zs": {"internalfile1.ainb": PackIndexEntry, "internalfile2.ainb": PackIndexEntry}}
         # {"Root": {"Logic/OpeningField_1856.logic.root.ainb": PackIndexEntry}}
 
-        res = conn.execute(f"""
+        cursor = conn.execute(f"""
             SELECT packfile, internal_filename_csv
             FROM {cls.TABLE}
             WHERE extension = ?;
@@ -30,7 +30,7 @@ class PackIndex:
             """, (ext,))
 
         out = {"Root": {}}
-        for packfile, internal_filename_csv in res:
+        for packfile, internal_filename_csv in cursor.fetchall():
             # Packs with no results stay empty like this, internal_filename_csv="" negative cache
             packfile = PackIndexEntry.fix_backslashes(packfile)
             out[packfile] = {}

@@ -1,6 +1,6 @@
 Folders we use:
 - Requires a read only romfs (really just AI+Logic+Sequence, Pack, and RSDB for determining version)
-- "appvar" folder is for cache, history, etc
+- "appvar" has a subfolder for each romfs version you open. These contain a large cache.db which is rebuilt if deleted, and a modfs-specific history.db is planned. These are sqlite files, many tools will open them and a crude sql shell is included in-app.
 - Output folder should be set to a mod romfs. Upon saving: Newly modified packs will be initialized from romfs, existing packs will have their dirty ainb files updated. This means we shouldn't clobber your mod's non-ainb changes.
 
 

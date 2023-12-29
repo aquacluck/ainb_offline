@@ -9,6 +9,7 @@ import dearpygui.dearpygui as dpg
 from ..app_types import *
 from .pack_index import PackIndex
 from .ainb_file_node_usage_index import AinbFileNodeUsageIndex
+from .ainb_file_param_name_usage_index import AinbFileParamNameUsageIndex
 
 
 tls = threading.local()
@@ -27,8 +28,10 @@ class Connection:
     def db_init(self):
         appvar = dpg.get_value(AppConfigKeys.APPVAR_PATH)
         title_version = dpg.get_value(AppConfigKeys.TITLE_VERSION)
-        db_file = f"{appvar}/{title_version}/project.db"
 
+        # TODO multiple db files, so cache can be deleted separately
+        db_file = f"{appvar}/{title_version}/cache.db"
+        print(f"Using cache db: {db_file}")
         pathlib.Path(db_file).parent.mkdir(parents=True, exist_ok=True)
         if os.name == "nt":
             # `file:` seems broken on windows? and the uri was the only way to set autocommit till 3.12
@@ -41,7 +44,7 @@ class Connection:
         self.create_tables()
 
     def create_tables(self):
-        tables = [PackIndex, AinbFileNodeUsageIndex]
+        tables = [PackIndex, AinbFileNodeUsageIndex, AinbFileParamNameUsageIndex]
         with self.connection:
             for tbl in tables:
                 for statement in tbl.emit_create():
