@@ -119,8 +119,8 @@ class EditContext:
             # aj["Nodes"][i]["Immediate Parameters"][aj_type][i_of_type]["Value"] = op_value
             # aj["Global Parameters"][aj_type][i_of_type]["Default Value"] = op_value
 
-            if sel[1] == -420 and sel[2] == PARAM_SECTION_NAME.GLOBAL:
-                target_params = ainb.output_dict[PARAM_SECTION_NAME.GLOBAL]
+            if sel[1] == -420 and sel[2] == ParamSectionName.GLOBAL:
+                target_params = ainb.output_dict[ParamSectionName.GLOBAL]
             else:
                 target_params = ainb.output_dict[sel[0]][sel[1]][sel[2]]
 

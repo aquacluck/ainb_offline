@@ -1,4 +1,5 @@
 import functools
+import json
 import os
 import pathlib
 import sqlite3
@@ -7,7 +8,7 @@ from typing import *
 import dearpygui.dearpygui as dpg
 
 from .app_types import *
-from .db import Connection, AinbNodeParamShapeIndex, PackIndex
+from .db import Connection, AinbFileNodeUsageIndex, PackIndex
 from .dt_ainb.ainb import AINB
 from . import pack_util
 
@@ -66,7 +67,6 @@ def build_ainb_index_for_unknown_files() -> None:
                     root_new_locations.append(romfs_relative)
         if entry_hit < entry_total:
             inspect_ainb_pack(conn, romfs, "Root", {k: None for k in root_new_locations})
-            PackIndex.persist_one_pack_one_extension(conn, "Root", "ainb", root_all_locations)
         print("")  # \n
 
         # Global pack ainb
@@ -77,7 +77,6 @@ def build_ainb_index_for_unknown_files() -> None:
         if cached_ainb_locations is None:
             global_locations = pack_util.load_ext_files_from_pack(f"{romfs}/{packfile}", "ainb")
             inspect_ainb_pack(conn, romfs, packfile, global_locations)
-            PackIndex.persist_one_pack_one_extension(conn, packfile, "ainb", global_locations.keys())
             entry_total += len(global_locations)
         else:
             entry_hit += len(cached_ainb_locations)
@@ -95,7 +94,6 @@ def build_ainb_index_for_unknown_files() -> None:
             if cached_ainb_locations is None:
                 pack_locations = pack_util.load_ext_files_from_pack(f"{romfs}/{packfile}", "ainb")
                 inspect_ainb_pack(conn, romfs, packfile, pack_locations)
-                PackIndex.persist_one_pack_one_extension(conn, packfile, "ainb", pack_locations.keys())
                 entry_total += len(pack_locations)
             else:
                 entry_hit += len(cached_ainb_locations)
@@ -113,57 +111,54 @@ def build_ainb_index_for_unknown_files() -> None:
 
 
 def inspect_ainb_pack(conn: sqlite3.Connection, rootfs: str, packfile: str, pack_data: Dict[str, memoryview]):
-    # Crawl each ainb to discover param info per node type.
     # XXX rootfs could be romfs or modfs, should be whatever pack_data's source is.
     # currently it won't see modfs at all, and for some reason I put related lookups in edit_context?
+
+    # The ainb-emptiness of packs is cached, so we won't keep opening them up every time
+    PackIndex.persist_one_pack_one_extension(conn, packfile, "ainb", pack_data.keys())
     if len(pack_data) == 0:
         return
 
-    int_columns = AinbNodeParamShapeIndex.INT_COLUMNS
-
+    # Crawl each ainb to discover param info per node type.
     for internalfile, data in pack_data.items():
         if packfile == "Root":
             data = memoryview(open(f"{rootfs}/{internalfile}", "rb").read())
         ainb = AINB(data)
 
         # TODO index file level info in another table?
-        #file_category = ainb.output_dict["Info"]["File Category"]
-        #file_globals = ainb.output_dict.get(PARAM_SECTION_NAME.GLOBAL, {})
+        fullfile = PackIndexEntry(packfile=packfile, internalfile=internalfile, extension="ainb").fullfile
+        file_category = ainb.output_dict["Info"]["File Category"]
+        #file_globals = ainb.output_dict.get(ParamSectionName.GLOBAL, {})
+        #AinbFileInfoIndex.add(fullfile, file_category, file_globals)
 
         # TODO additional table for userdefined classes/instantiation/??? detail,
         # since just counting userdefineds leaves a lot of type info out.
         # might be able to generally add metadata/flags/etc to all params this way?
 
-        for aj_node in ainb.output_dict.get("Nodes", []):
+        for node_i, aj_node in enumerate(ainb.output_dict.get("Nodes", [])):
             node_type = aj_node["Node Type"]
             if node_type == "UserDefined":
                 node_type = aj_node["Name"]
 
-            param_counts = [0] * len(int_columns)
-
-            for aj_type, aj_params in aj_node.get(PARAM_SECTION_NAME.IMMEDIATE, {}).items():
-                col = f"imm_{aj_type}_n"
-                i = int_columns.index(col)
-                param_counts[i] = len(aj_params)
-
-            for aj_type, aj_params in aj_node.get(PARAM_SECTION_NAME.INPUT, {}).items():
-                col = f"in_{aj_type}_n"
-                i = int_columns.index(col)
-                param_counts[i] = len(aj_params)
-
-            for aj_type, aj_params in aj_node.get(PARAM_SECTION_NAME.OUTPUT, {}).items():
-                col = f"out_{aj_type}_n"
-                i = int_columns.index(col)
-                param_counts[i] = len(aj_params)
-
             param_details = {}
-            if x := aj_node.get(PARAM_SECTION_NAME.IMMEDIATE):
-                param_details[PARAM_SECTION_NAME.IMMEDIATE] = x
-            if x := aj_node.get(PARAM_SECTION_NAME.INPUT):
-                param_details[PARAM_SECTION_NAME.INPUT] = x
-            if x := aj_node.get(PARAM_SECTION_NAME.OUTPUT):
-                param_details[PARAM_SECTION_NAME.OUTPUT] = x
+            if x := aj_node.get(ParamSectionName.IMMEDIATE):
+                param_details[ParamSectionName.IMMEDIATE] = x
+            if x := aj_node.get(ParamSectionName.INPUT):
+                param_details[ParamSectionName.INPUT] = x
+            if x := aj_node.get(ParamSectionName.OUTPUT):
+                param_details[ParamSectionName.OUTPUT] = x
 
             # aj_node.get("Linked Nodes", {})
-            AinbNodeParamShapeIndex.persist_shape(conn, node_type, param_details)
+            # AinbNodeParamShapeIndex.persist_shape(conn, node_type, param_details)
+
+            # Clone, then overwrite to keep Name field only
+            param_names = json.loads(json.dumps(param_details))
+            for section, params in param_names.items():
+                for param_type, param_list in params.items():
+                    for i, param in enumerate(param_list):
+                        param_list[i] = param.get("Name", "")
+
+            # Index every node call's source, node, params
+            # Show highest ranked names per category for node creation, with option to copy full params?
+            AinbFileNodeUsageIndex.persist(conn, fullfile, file_category, node_type, node_i, param_names, param_details)
 

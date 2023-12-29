@@ -8,14 +8,14 @@ from ..app_types import *
 class PackIndex:
     TABLE = "pack_index"
     @classmethod
-    def emit_create(cls) -> str:
-        return f"""
+    def emit_create(cls) -> List[str]:
+        return [f"""
             CREATE TABLE IF NOT EXISTS {cls.TABLE}(
                 packfile TEXT,
                 extension TEXT,
                 internal_filename_csv TEXT,
                 PRIMARY KEY(packfile ASC, extension ASC)
-            ) WITHOUT ROWID;"""
+            ) WITHOUT ROWID;"""]
 
     @classmethod
     def get_all_entries_by_extension(cls, conn: sqlite3.Connection, ext: str) -> Dict[str, Dict[str, PackIndexEntry]]:
