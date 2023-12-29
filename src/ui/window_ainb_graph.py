@@ -46,6 +46,20 @@ ParamSectionDpgAttrType = {
 #     optional /reslink{int}: Map<int, dpg.node_attribute>, Resident Update Link
 
 
+@functools.cache
+def make_node_theme_for_hue(hue: AppColor):
+    with dpg.theme() as theme:
+        with dpg.theme_component(dpg.mvNode):
+            dpg.add_theme_color(dpg.mvNodeCol_TitleBar, hue.set_hsv(s=0.5, v=0.4).to_rgb24(), category=dpg.mvThemeCat_Nodes)
+            dpg.add_theme_color(dpg.mvNodeCol_TitleBarHovered, hue.set_hsv(s=0.5, v=0.5).to_rgb24(), category=dpg.mvThemeCat_Nodes)
+            dpg.add_theme_color(dpg.mvNodeCol_TitleBarSelected, hue.set_hsv(s=0.4, v=0.55).to_rgb24(), category=dpg.mvThemeCat_Nodes)
+
+            dpg.add_theme_color(dpg.mvNodeCol_NodeBackground, hue.set_hsv(s=0.15, v=0.3).to_rgb24(), category=dpg.mvThemeCat_Nodes)
+            dpg.add_theme_color(dpg.mvNodeCol_NodeBackgroundHovered, hue.set_hsv(s=0.1, v=0.35).to_rgb24(), category=dpg.mvThemeCat_Nodes)
+            dpg.add_theme_color(dpg.mvNodeCol_NodeBackgroundSelected, hue.set_hsv(s=0.1, v=0.35).to_rgb24(), category=dpg.mvThemeCat_Nodes)
+    return theme
+
+
 @dataclass
 class RenderAinbNodeRequest:
     # ainb
@@ -62,64 +76,75 @@ class RenderAinbNodeRequest:
     node_tag_ns: str
 
 
-def open_ainb_graph_window(s, a, ainb_location: PackIndexEntry):
-    ectx = EditContext.get()
-    if window_tag := ectx.get_ainb_window(ainb_location):
-        dpg.focus_item(window_tag)
-        return
+class WindowAinbGraph:
+    @classmethod
+    def create_anon_oneshot(cls, ainb_location: PackIndexEntry, ectx: EditContext) -> None:
+        window = cls(ainb_location, ectx)
+        window.create()
 
-    print(f"Opening {ainb_location.fullfile}")
-    category, ainbfile = pathlib.Path(ainb_location.internalfile).parts
-    ainb = ectx.load_ainb(ainb_location)
+    def __init__(self, ainb_location: PackIndexEntry, ectx: EditContext):
+        self.ainb_location = ainb_location
+        self.ectx = ectx
 
-    if ainb_location.packfile == "Root":
-        window_label = f"[{category}] {ainbfile}"
-    else:
-        window_label = f"[{category}] {ainbfile} [from {ainb_location.packfile}]"
+        print(f"Opening {self.ainb_location.fullfile}")
+        self.ainb = self.ectx.load_ainb(self.ainb_location)
 
-    def close(*_):
-        ectx.unregister_ainb_window(ainb_location)
+    @property
+    def node_editor(self) -> DpgTag:
+        return f"{self.ainb_window}/tabs/graph/editor"
 
-    with dpg.window(label=window_label, width=1280, height=1080, pos=[600, 200], on_close=close) as ainb_window:
-        ectx.register_ainb_window(ainb_location, ainb_window)
+    @property
+    def json_textbox(self) -> DpgTag:
+        return f"{self.ainb_window}/tabs/json/textbox"
 
-        def save_ainb():
-            ectx.save_ainb(ainb_location, ainb)
+    def on_close(self, *_):
+        self.ectx.unregister_ainb_window(self.ainb_location)
 
-        def redump_json():
-            # Replace json textbox with working ainb (possibly dirty)
-            ainb_json_str = json.dumps(ainb.output_dict, indent=4)
-            json_textbox = f"{ainb_window}/tabs/json/textbox"
-            dpg.set_value(json_textbox, ainb_json_str)
+    def create(self) -> DpgTag:
+        category, ainbfile = pathlib.Path(self.ainb_location.internalfile).parts
+        if self.ainb_location.packfile == "Root":
+            window_label = f"[{category}] {ainbfile}"
+        else:
+            window_label = f"[{category}] {ainbfile} [from {self.ainb_location.packfile}]"
 
-        def rerender_graph_from_json():
-            json_textbox = f"{ainb_window}/tabs/json/textbox"
-            node_editor = f"{ainb_window}/tabs/graph/editor"
-            user_json_str = dpg.get_value(json_textbox)
+        self.ainb_window = dpg.add_window(label=window_label, width=1280, height=1080, pos=[600, 200], on_close=self.on_close)
+        self.ectx.register_ainb_window(self.ainb_location, self.ainb_window)
+        self.render_contents()
 
-            # Send event to edit ctx
-            edit_op = AinbEditOperation(op_type=AinbEditOperationTypes.REPLACE_JSON, op_value=user_json_str)
-            ectx.perform_new_edit_operation(ainb_location, ainb, edit_op)
+        return self.ainb_window
 
-            # Re-render editor
-            dpg.delete_item(node_editor, children_only=True)
-            add_ainb_nodes(ainb, ainb_location, node_editor)
+    def redump_json_textbox(self):
+        # Replace json textbox with working ainb (possibly dirty)
+        ainb_json_str = json.dumps(self.ainb.output_dict, indent=4)
+        dpg.set_value(self.json_textbox, ainb_json_str)
 
-        def tab_change(sender, data, app_data):
+    def rerender_graph_from_json(self):
+        user_json_str = dpg.get_value(self.json_textbox)
+
+        # Send event to edit ctx
+        edit_op = AinbEditOperation(op_type=AinbEditOperationTypes.REPLACE_JSON, op_value=user_json_str)
+        self.ectx.perform_new_edit_operation(self.ainb_location, self.ainb, edit_op)
+
+        # Re-render editor
+        dpg.delete_item(self.node_editor, children_only=True)
+        self.render_ainb_nodes()
+
+    def render_contents(self):
+        def _tab_change(sender, data, app_data):
             entered_tab = dpg.get_item_alias(data)
-            is_autodump = True  # dpg.get_value(f"{ainb_window}/tabs/json/autodump")
-            if entered_tab == f"{ainb_window}/tabs/json" and is_autodump:
-                redump_json()
+            is_autodump = True  # dpg.get_value(f"{self.ainb_window}/tabs/json/autodump")
+            if entered_tab == f"{self.ainb_window}/tabs/json" and is_autodump:
+                self.redump_json_textbox()
 
-        with dpg.tab_bar(tag=f"{ainb_window}/tabs", callback=tab_change):
+        with dpg.tab_bar(tag=f"{self.ainb_window}/tabs", parent=self.ainb_window, callback=_tab_change):
             # dpg.add_tab_button(label="[max]", callback=dpg.maximize_viewport)  # works at runtime, fails at init?
             # dpg.add_tab_button(label="wipe cache")
-            with dpg.tab(tag=f"{ainb_window}/tabs/graph", label="Node Graph"):
+            with dpg.tab(tag=f"{self.ainb_window}/tabs/graph", label="Node Graph"):
                 with dpg.child_window(autosize_x=True, autosize_y=True):
                     # sludge for now
-                    def link_callback(sender, app_data):
+                    def _link_callback(sender, app_data):
                         dpg.add_node_link(app_data[0], app_data[1], parent=sender)
-                    def delink_callback(sender, app_data):
+                    def _delink_callback(sender, app_data):
                         dpg.delete_item(app_data)
 
                     # TODO top bar, might replace tabs?
@@ -129,103 +154,85 @@ def open_ainb_graph_window(s, a, ainb_location: PackIndexEntry):
                     # - "{}" json button?
 
                     # Main graph ui + rendering nodes
-                    node_editor = f"{ainb_window}/tabs/graph/editor"
                     dpg.add_node_editor(
-                        tag=node_editor,
-                        callback=link_callback,
-                        delink_callback=delink_callback,
+                        tag=self.node_editor,
+                        callback=_link_callback,
+                        delink_callback=_delink_callback,
                         minimap=True,
                         minimap_location=dpg.mvNodeMiniMap_Location_BottomRight
                     )
-                    add_ainb_nodes(ainb, ainb_location, node_editor)
+                    self.render_ainb_nodes()
 
-
-            with dpg.tab(tag=f"{ainb_window}/tabs/json", label="Parsed JSON"):
+            with dpg.tab(tag=f"{self.ainb_window}/tabs/json", label="Parsed JSON"):
                 with dpg.child_window(autosize_x=True, autosize_y=True):
                     with dpg.group(horizontal=True):
-                        #dpg.add_button(label="Refresh JSON", callback=redump_json)
-                        #dpg.add_checkbox(label="(Always refresh)", tag=f"{ainb_window}/tabs/json/autodump", default_value=True)
-                        dpg.add_button(label="Apply Changes", callback=rerender_graph_from_json)
+                        #dpg.add_button(label="Refresh JSON", callback=self.redump_json_textbox)
+                        #dpg.add_checkbox(label="(Always refresh)", tag=f"{self.ainb_window}/tabs/json/autodump", default_value=True)
+                        dpg.add_button(label="Apply Changes", callback=self.rerender_graph_from_json)
                         #      dpg.add_button(label="Overwrite AINB") duh
                         #      dpg.add_button(label="Open JSON in: ", source="jsdfl/opencmd")
                         #      dpg.add_input_text(default_value='$EDITOR "%s"', tag="jsdfl/opencmd")
-                    json_textbox = f"{ainb_window}/tabs/json/textbox"
-                    dpg.add_input_text(tag=json_textbox, default_value="any slow dumps?", width=-1, height=-1, multiline=True, tab_input=True, readonly=False)
-                    redump_json()
+                    dpg.add_input_text(tag=self.json_textbox, default_value="any slow dumps?", width=-1, height=-1, multiline=True, tab_input=True, readonly=False)
+                    self.redump_json_textbox()
 
+            save_ainb = lambda: self.ectx.save_ainb(self.ainb_location, self.ainb)
             dpg.add_tab_button(label="Save to modfs", callback=save_ainb)
 
-    return ainb_window
 
+    def render_ainb_nodes(self):
+        aj = self.ainb.output_dict  # ainb json. we call him aj
+        ainb_tag_ns = f"{self.node_editor}/ainb0"
+        category, _ainbfile = pathlib.Path(self.ainb_location.internalfile).parts
 
-@functools.cache
-def make_node_theme_for_hue(hue: AppColor):
-    with dpg.theme() as theme:
-        with dpg.theme_component(dpg.mvNode):
-            dpg.add_theme_color(dpg.mvNodeCol_TitleBar, hue.set_hsv(s=0.5, v=0.4).to_rgb24(), category=dpg.mvThemeCat_Nodes)
-            dpg.add_theme_color(dpg.mvNodeCol_TitleBarHovered, hue.set_hsv(s=0.5, v=0.5).to_rgb24(), category=dpg.mvThemeCat_Nodes)
-            dpg.add_theme_color(dpg.mvNodeCol_TitleBarSelected, hue.set_hsv(s=0.4, v=0.55).to_rgb24(), category=dpg.mvThemeCat_Nodes)
+        # TODO special layout+style for globals node (and move node nearby when hovering on a consuming param?)
+        # TODO globals links, eg <Assassin_Senior.action.interuptlargedamage.module>.nodes[0].#ASCommand["Global Parameters Index"] == 0 points to $ASName="LargeDamagge"
+        # Render globals as a type of node? Not sure if dumb, we do need to link/associate globals into nodes anyways somehow
+        if aj.get(ParamSectionName.GLOBAL):
+            globals_tag_ns = f"{ainb_tag_ns}/Globals"
 
-            dpg.add_theme_color(dpg.mvNodeCol_NodeBackground, hue.set_hsv(s=0.15, v=0.3).to_rgb24(), category=dpg.mvThemeCat_Nodes)
-            dpg.add_theme_color(dpg.mvNodeCol_NodeBackgroundHovered, hue.set_hsv(s=0.1, v=0.35).to_rgb24(), category=dpg.mvThemeCat_Nodes)
-            dpg.add_theme_color(dpg.mvNodeCol_NodeBackgroundSelected, hue.set_hsv(s=0.1, v=0.35).to_rgb24(), category=dpg.mvThemeCat_Nodes)
-    return theme
+            globals_node_theme = make_node_theme_for_hue(AppStyleColors.GRAPH_GLOBALS_HUE)
+            dpg.add_node(tag=f"{globals_tag_ns}/Node", label=ParamSectionName.GLOBAL, parent=self.node_editor)
+            dpg.bind_item_theme(f"{globals_tag_ns}/Node", globals_node_theme)
 
+            render_ainb_node_param_section(RenderAinbNodeRequest(
+                # ainb
+                ainb=self.ainb,
+                ainb_location=self.ainb_location,
+                aj=aj,
+                category=category,
+                # ainb node
+                aj_node=aj,
+                node_i=-420,  # lol
+                # ui
+                node_editor=self.node_editor,
+                ainb_tag_ns=ainb_tag_ns,
+                node_tag_ns=globals_tag_ns,
+            ), ParamSectionName.GLOBAL)
 
-def add_ainb_nodes(ainb: AINB, ainb_location: PackIndexEntry, node_editor):
-    aj = ainb.output_dict  # ainb json. we call him aj
-    ainb_tag_ns = f"{node_editor}/ainb0"
-    category, _ainbfile = pathlib.Path(ainb_location.internalfile).parts
-
-    # TODO special layout+style for globals node (and move node nearby when hovering on a consuming param?)
-    # TODO globals links, eg <Assassin_Senior.action.interuptlargedamage.module>.nodes[0].#ASCommand["Global Parameters Index"] == 0 points to $ASName="LargeDamagge"
-    # Render globals as a type of node? Not sure if dumb, we do need to link/associate globals into nodes anyways somehow
-    if aj.get(ParamSectionName.GLOBAL):
-        globals_tag_ns = f"{ainb_tag_ns}/Globals"
-
-        globals_node_theme = make_node_theme_for_hue(AppStyleColors.GRAPH_GLOBALS_HUE)
-        dpg.add_node(tag=f"{globals_tag_ns}/Node", label=ParamSectionName.GLOBAL, parent=node_editor)
-        dpg.bind_item_theme(f"{globals_tag_ns}/Node", globals_node_theme)
-
-        render_ainb_node_param_section(RenderAinbNodeRequest(
+        # needed somewhere to throw a lot of vars...
+        render_reqs = [RenderAinbNodeRequest(
             # ainb
-            ainb=ainb,
-            ainb_location=ainb_location,
+            ainb=self.ainb,
+            ainb_location=self.ainb_location,
             aj=aj,
             category=category,
             # ainb node
-            aj_node=aj,
-            node_i=-420,  # lol
+            aj_node=aj_node,
+            node_i=node_i,
             # ui
-            node_editor=node_editor,
+            node_editor=self.node_editor,
             ainb_tag_ns=ainb_tag_ns,
-            node_tag_ns=globals_tag_ns,
-        ), ParamSectionName.GLOBAL)
+            node_tag_ns=f"{ainb_tag_ns}/node{node_i}",
+        ) for node_i, aj_node in enumerate(aj.get("Nodes", []))]
 
-    # needed somewhere to throw a lot of vars...
-    render_reqs = [RenderAinbNodeRequest(
-        # ainb
-        ainb=ainb,
-        ainb_location=ainb_location,
-        aj=aj,
-        category=category,
-        # ainb node
-        aj_node=aj_node,
-        node_i=node_i,
-        # ui
-        node_editor=node_editor,
-        ainb_tag_ns=ainb_tag_ns,
-        node_tag_ns=f"{ainb_tag_ns}/node{node_i}",
-    ) for node_i, aj_node in enumerate(aj.get("Nodes", []))]
+        # We can't link nodes that don't exist yet
+        deferred_link_calls: List[DeferredNodeLinkCall] = []
+        for req in render_reqs:
+            pending_links = render_ainb_node(req)
+            deferred_link_calls += pending_links
 
-    # We can't link nodes that don't exist yet
-    deferred_link_calls: List[DeferredNodeLinkCall] = []
-    for req in render_reqs:
-        pending_links = render_ainb_node(req)
-        deferred_link_calls += pending_links
-
-    # All nodes+attributes exist, now we can link them
-    render_ainb_file_links_and_layout(aj, ainb_tag_ns, deferred_link_calls)
+        # All nodes+attributes exist, now we can link them
+        render_ainb_file_links_and_layout(aj, ainb_tag_ns, deferred_link_calls)
 
 
 def render_ainb_node(req: RenderAinbNodeRequest) -> List[DeferredNodeLinkCall]:
@@ -352,7 +359,14 @@ def render_ainb_node_topmeta(req: RenderAinbNodeRequest) -> None:
                     dest_location = scoped_pack_lookup(PackIndexEntry(internalfile=dest_ainbfile, packfile=req.ainb_location.packfile, extension="ainb"))
                     with dpg.group(horizontal=True):
                         dpg.add_text(f'@ ExternalAINB[{aref["File Category"]}] {aref["File Path"]}')
-                        dpg.add_button(label="Open AINB", user_data=dest_location, callback=open_ainb_graph_window, arrow=True, direction=dpg.mvDir_Right)
+                        dpg.add_button(
+                            label="Open AINB",
+                            #user_data=dest_location,
+                            # XXX ideally plumb in ectx
+                            callback=lambda: EditContext.get().open_ainb_window(dest_location),
+                            arrow=True,
+                            direction=dpg.mvDir_Right,
+                        )
 
                     external_ainb_theme = make_node_theme_for_hue(AppStyleColors.GRAPH_MODULE_HUE)
                     dpg.bind_item_theme(f"{req.node_tag_ns}/Node", external_ainb_theme)
@@ -388,13 +402,13 @@ def render_ainb_node_param_section(req: RenderAinbNodeRequest, param_section: Pa
             op_selector = ("Nodes", req.node_i, param_section, aj_type, i_of_type, param_default_name)
 
             def on_edit(sender, data, op_selector):
-                ectx = EditContext.get()
                 # TODO store jsonpath or something instead?
                 # aj["Nodes"][i]["Immediate Parameters"][aj_type][i_of_type]["Value"] = op_value
                 # aj["Global Parameters"][aj_type][i_of_type]["Default Value"] = op_value
-                op_value = data  # TODO how do non scalars work? also debounce or do on leave or something?
+                op_value = data  # TODO debounce/merge history entries while immediately acting on all
                 edit_op = AinbEditOperation(op_type=AinbEditOperationTypes.PARAM_UPDATE_DEFAULT, op_value=op_value, op_selector=op_selector)
-                ectx.perform_new_edit_operation(req.ainb_location, req.ainb, edit_op)
+                # XXX ideally plumb in ectx
+                EditContext.get().perform_new_edit_operation(req.ainb_location, req.ainb, edit_op)
 
             node_attr_tag_ns = f"{req.node_tag_ns}/Params/{param_section}/{param_name}"
             ui_input_tag = f"{node_attr_tag_ns}/ui_input"

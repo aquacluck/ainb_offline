@@ -8,7 +8,7 @@ import dearpygui.dearpygui as dpg
 from .. import pack_util
 from ..app_types import *
 from ..app_ainb_cache import get_pack_index_by_extension
-from .window_ainb_graph import open_ainb_graph_window
+from ..edit_context import EditContext
 
 
 class WindowAinbIndex:
@@ -28,7 +28,7 @@ class WindowAinbIndex:
             def callback_open_ainb(s, a, u):
                 textitem = a[1]
                 ainb_location: PackIndexEntry = dpg.get_item_user_data(textitem)
-                open_ainb_graph_window(None, None, ainb_location)
+                EditContext.get().open_ainb_window(ainb_location)
             dpg.add_item_clicked_handler(callback=callback_open_ainb)
 
 

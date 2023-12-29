@@ -9,7 +9,6 @@ from . import db, edit_context
 from .app_ainb_cache import build_ainb_index_for_unknown_files
 from .app_types import *
 from .ui.window_ainb_index import WindowAinbIndex
-from .ui.window_ainb_graph import open_ainb_graph_window
 from .ui.window_sql_shell import WindowSqlShell
 
 
@@ -106,7 +105,7 @@ def main():
             ainb_location = PackIndexEntry(internalfile=use_ainbfile[0], packfile="Root", extension="ainb")
         else:
             raise ValueError(f"Unparsable path {use_ainbfile}")
-        open_ainb_graph_window(None, None, ainb_location)
+        ectx.open_ainb_window(ainb_location)
 
 
     dpg.set_primary_window(primary_window, True)

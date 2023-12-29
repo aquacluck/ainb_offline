@@ -7,6 +7,7 @@ import shutil
 
 from .app_types import *
 from .dt_ainb.ainb import AINB
+# XXX deferred from .ui.window_ainb_graph import WindowAinbGraph
 from . import pack_util
 
 active_ectx = None  # initialized in main
@@ -21,19 +22,28 @@ class EditContext:
         self.romfs = dpg.get_value(AppConfigKeys.ROMFS_PATH)
         self.modfs = dpg.get_value(AppConfigKeys.MODFS_PATH)
         self.title_version = dpg.get_value(AppConfigKeys.TITLE_VERSION)
-        self.open_windows = {}
-        self.edit_histories = {}
+        self.open_windows: Dict[str, DpgTag] = {}
+        self.edit_histories: Dict[str, List[AinbEditOperation]] = {}
 
-    def get_ainb_window(self, ainb_location: PackIndexEntry):
+    def get_ainb_window(self, ainb_location: PackIndexEntry) -> Optional[DpgTag]:
         return self.open_windows.get(ainb_location.fullfile)
 
-    def register_ainb_window(self, ainb_location: PackIndexEntry, tag):
+    def register_ainb_window(self, ainb_location: PackIndexEntry, tag: DpgTag) -> None:
         if ainb_location.fullfile in self.open_windows:
             raise Exception(f"Window already open for {ainb_location.fullfile}")
         self.open_windows[ainb_location.fullfile] = tag
 
-    def unregister_ainb_window(self, ainb_location):
+    def unregister_ainb_window(self, ainb_location: PackIndexEntry) -> None:
         del self.open_windows[ainb_location.fullfile]
+
+    def open_ainb_window(self, ainb_location: PackIndexEntry) -> None:
+        if window_tag := self.get_ainb_window(ainb_location):
+            # Ignore request and just raise existing window
+            dpg.focus_item(window_tag)
+            return
+
+        from .ui.window_ainb_graph import WindowAinbGraph  # XXX
+        WindowAinbGraph.create_anon_oneshot(ainb_location, self)
 
     def load_ainb(self, ainb_location: PackIndexEntry) -> AINB:
         # Resolve through modfs, modfs packs, ...
