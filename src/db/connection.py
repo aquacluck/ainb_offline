@@ -6,9 +6,9 @@ from typing import *
 
 import dearpygui.dearpygui as dpg
 
-from app_types import *
-from db_model_pack_index import PackIndex
-from db_model_ainb_node_param_shape_index import AinbNodeParamShapeIndex
+from ..app_types import *
+from .pack_index import PackIndex
+from .ainb_node_param_shape_index import AinbNodeParamShapeIndex
 
 
 tls = threading.local()

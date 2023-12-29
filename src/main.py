@@ -5,13 +5,12 @@ from typing import *
 
 import dearpygui.dearpygui as dpg
 
-import db
-from app_ainb_cache import build_ainb_index_for_unknown_files
-from app_types import *
-from window_ainb_index import open_ainb_index_window
-from window_ainb_graph import open_ainb_graph_window
-from window_sql_shell import WindowSqlShell
-import edit_context
+from . import db, edit_context
+from .app_ainb_cache import build_ainb_index_for_unknown_files
+from .app_types import *
+from .window_ainb_index import open_ainb_index_window
+from .window_ainb_graph import open_ainb_graph_window
+from .window_sql_shell import WindowSqlShell
 
 
 def main():
@@ -120,6 +119,3 @@ def main():
     dpg.start_dearpygui() # dpg loop runs...
     dpg.destroy_context()
 
-
-if __name__ == "__main__":
-    main()

@@ -2,8 +2,7 @@ from dataclasses import dataclass
 import sqlite3
 from typing import *
 
-from app_types import *
-import db
+from ..app_types import *
 
 
 class PackIndex:

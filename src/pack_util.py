@@ -6,7 +6,7 @@ import dearpygui.dearpygui as dpg
 import sarc
 import zstandard as zstd
 
-from app_types import *
+from .app_types import *
 
 
 @functools.lru_cache

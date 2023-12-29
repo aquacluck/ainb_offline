@@ -1,16 +1,15 @@
 import functools
 import os
 import pathlib
+import sqlite3
 from typing import *
 
 import dearpygui.dearpygui as dpg
 
-from app_types import *
-import db
-from db_model_ainb_node_param_shape_index import AinbNodeParamShapeIndex
-from db_model_pack_index import PackIndex
-from dt_ainb.ainb import AINB
-import pack_util
+from .app_types import *
+from .db import Connection, AinbNodeParamShapeIndex, PackIndex
+from .dt_ainb.ainb import AINB
+from . import pack_util
 
 
 def scoped_pack_lookup(req: PackIndexEntry) -> PackIndexEntry:
@@ -38,7 +37,7 @@ def scoped_pack_lookup(req: PackIndexEntry) -> PackIndexEntry:
 
 @functools.lru_cache
 def get_pack_index_by_extension(ext: str) -> Dict[str, Dict[str, PackIndexEntry]]:
-    return PackIndex.get_all_entries_by_extension(db.Connection.get(), ext)
+    return PackIndex.get_all_entries_by_extension(Connection.get(), ext)
 
 
 def build_ainb_index_for_unknown_files() -> None:
@@ -46,7 +45,7 @@ def build_ainb_index_for_unknown_files() -> None:
     entry_hit = 0
     entry_total = 0
 
-    with db.Connection.get() as conn:
+    with Connection.get() as conn:
         ainb_cache = PackIndex.get_all_entries_by_extension(conn, "ainb")
 
         # Root ainb
@@ -113,7 +112,7 @@ def build_ainb_index_for_unknown_files() -> None:
         print(f"Cache hits {entry_hit}/{entry_total}\n", flush=True)
 
 
-def inspect_ainb_pack(conn, rootfs: str, packfile: str, pack_data: Dict[str, memoryview]):
+def inspect_ainb_pack(conn: sqlite3.Connection, rootfs: str, packfile: str, pack_data: Dict[str, memoryview]):
     # Crawl each ainb to discover param info per node type.
     # XXX rootfs could be romfs or modfs, should be whatever pack_data's source is.
     # currently it won't see modfs at all, and for some reason I put related lookups in edit_context?

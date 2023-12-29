@@ -8,23 +8,23 @@ Usage + dependencies:
 ```sh
 # Quick start with default paths in repo: ROMFS=./romfs, APPVAR=./var, OUTPUT_MODFS=./var/modfs
 pip install dearpygui mmh3 pyyaml byml sarc zstandard
-python src/main.py
+python ainb_offline.py
 
 # Or specify paths, eg write to emulator mod path
 pip install dearpygui mmh3 pyyaml byml sarc zstandard
-ROMFS=~/totk100/romfs APPVAR=~/totk100/appcache OUTPUT_MODFS=~/appdata/Ryujinx/sdcard/atmosphere/contents/0100f2c0115b6000/romfs python src/main.py
+ROMFS=~/totk100/romfs APPVAR=~/totk100/appcache OUTPUT_MODFS=~/appdata/Ryujinx/sdcard/atmosphere/contents/0100f2c0115b6000/romfs python ainb_offline.py
 
 # Open given ainb, including any changes from modfs
 # These are equivalent:
-python3 src/main.py AI/Assassin_Senior.action.interuptlargedamage.module.ainb  # romfs-relative
-python3 src/main.py romfs/AI/Assassin_Senior.action.interuptlargedamage.module.ainb  # cwd-relative into "romfs"
-python3 src/main.py Root:AI/Assassin_Senior.action.interuptlargedamage.module.ainb  # "Root" is a pack
+python3 ainb_offline.py AI/Assassin_Senior.action.interuptlargedamage.module.ainb  # romfs-relative
+python3 ainb_offline.py romfs/AI/Assassin_Senior.action.interuptlargedamage.module.ainb  # cwd-relative into "romfs"
+python3 ainb_offline.py Root:AI/Assassin_Senior.action.interuptlargedamage.module.ainb  # "Root" is a pack
 # Or open from within packs, these are equivalent:
-python3 src/main.py Pack/Actor/Animal_Donkey_B.pack.zs:AI/NoMoveDonkey.root.ainb  # romfs-relative pack
-python3 src/main.py romfs/Pack/Actor/Animal_Donkey_B.pack.zs:AI/NoMoveDonkey.root.ainb  # cwd-relative pack
+python3 ainb_offline.py Pack/Actor/Animal_Donkey_B.pack.zs:AI/NoMoveDonkey.root.ainb  # romfs-relative pack
+python3 ainb_offline.py romfs/Pack/Actor/Animal_Donkey_B.pack.zs:AI/NoMoveDonkey.root.ainb  # cwd-relative pack
 
 # By default romfs RSDB is checked to determine version, unless version is specified:
-TITLE_VERSION=TOTK_100 python3 src/main.py
+TITLE_VERSION=TOTK_100 python3 ainb_offline.py
 ```
 
 Major limitations + known issues:

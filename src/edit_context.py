@@ -5,9 +5,9 @@ import json
 import os
 import shutil
 
-from app_types import *
-from dt_ainb.ainb import AINB
-import pack_util
+from .app_types import *
+from .dt_ainb.ainb import AINB
+from . import pack_util
 
 active_ectx = None  # initialized in main
 
