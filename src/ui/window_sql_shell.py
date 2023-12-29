@@ -3,8 +3,8 @@ from dataclasses import dataclass
 
 import dearpygui.dearpygui as dpg
 
-from .app_types import *
-from . import db
+from ..app_types import *
+from .. import db
 
 
 @dataclass

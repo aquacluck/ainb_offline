@@ -8,9 +8,9 @@ import dearpygui.dearpygui as dpg
 from . import db, edit_context
 from .app_ainb_cache import build_ainb_index_for_unknown_files
 from .app_types import *
-from .window_ainb_index import open_ainb_index_window
-from .window_ainb_graph import open_ainb_graph_window
-from .window_sql_shell import WindowSqlShell
+from .ui.window_ainb_index import open_ainb_index_window
+from .ui.window_ainb_graph import open_ainb_graph_window
+from .ui.window_sql_shell import WindowSqlShell
 
 
 def main():

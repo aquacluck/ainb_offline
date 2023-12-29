@@ -5,9 +5,9 @@ from typing import *
 
 import dearpygui.dearpygui as dpg
 
-from . import pack_util
-from .app_types import *
-from .app_ainb_cache import get_pack_index_by_extension
+from .. import pack_util
+from ..app_types import *
+from ..app_ainb_cache import get_pack_index_by_extension
 from .window_ainb_graph import open_ainb_graph_window
 
 
