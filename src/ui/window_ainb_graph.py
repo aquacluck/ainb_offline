@@ -77,11 +77,6 @@ class RenderAinbNodeRequest:
 
 
 class WindowAinbGraph:
-    @classmethod
-    def create_anon_oneshot(cls, ainb_location: PackIndexEntry, ectx: EditContext) -> None:
-        window = cls(ainb_location, ectx)
-        window.create()
-
     def __init__(self, ainb_location: PackIndexEntry, ectx: EditContext):
         self.ainb_location = ainb_location
         self.ectx = ectx
@@ -91,27 +86,26 @@ class WindowAinbGraph:
 
     @property
     def node_editor(self) -> DpgTag:
-        return f"{self.ainb_window}/tabs/graph/editor"
+        return f"{self.tag}/tabs/graph/editor"
 
     @property
     def json_textbox(self) -> DpgTag:
-        return f"{self.ainb_window}/tabs/json/textbox"
+        return f"{self.tag}/tabs/json/textbox"
 
-    def on_close(self, *_):
-        self.ectx.unregister_ainb_window(self.ainb_location)
-
-    def create(self) -> DpgTag:
+    def create(self, **window_kwargs) -> DpgTag:
         category, ainbfile = pathlib.Path(self.ainb_location.internalfile).parts
         if self.ainb_location.packfile == "Root":
             window_label = f"[{category}] {ainbfile}"
         else:
             window_label = f"[{category}] {ainbfile} [from {self.ainb_location.packfile}]"
 
-        self.ainb_window = dpg.add_window(label=window_label, width=1280, height=1080, pos=[600, 200], on_close=self.on_close)
-        self.ectx.register_ainb_window(self.ainb_location, self.ainb_window)
+        self.tag = dpg.add_window(
+            label=window_label,
+            on_close=lambda: self.ectx.close_ainb_window(self.ainb_location),
+            **window_kwargs,
+        )
         self.render_contents()
-
-        return self.ainb_window
+        return self.tag
 
     def redump_json_textbox(self):
         # Replace json textbox with working ainb (possibly dirty)
@@ -132,14 +126,14 @@ class WindowAinbGraph:
     def render_contents(self):
         def _tab_change(sender, data, app_data):
             entered_tab = dpg.get_item_alias(data)
-            is_autodump = True  # dpg.get_value(f"{self.ainb_window}/tabs/json/autodump")
-            if entered_tab == f"{self.ainb_window}/tabs/json" and is_autodump:
+            is_autodump = True  # dpg.get_value(f"{self.tag}/tabs/json/autodump")
+            if entered_tab == f"{self.tag}/tabs/json" and is_autodump:
                 self.redump_json_textbox()
 
-        with dpg.tab_bar(tag=f"{self.ainb_window}/tabs", parent=self.ainb_window, callback=_tab_change):
+        with dpg.tab_bar(tag=f"{self.tag}/tabs", parent=self.tag, callback=_tab_change):
             # dpg.add_tab_button(label="[max]", callback=dpg.maximize_viewport)  # works at runtime, fails at init?
             # dpg.add_tab_button(label="wipe cache")
-            with dpg.tab(tag=f"{self.ainb_window}/tabs/graph", label="Node Graph"):
+            with dpg.tab(tag=f"{self.tag}/tabs/graph", label="Node Graph"):
                 with dpg.child_window(autosize_x=True, autosize_y=True):
                     # sludge for now
                     def _link_callback(sender, app_data):
@@ -163,11 +157,11 @@ class WindowAinbGraph:
                     )
                     self.render_ainb_nodes()
 
-            with dpg.tab(tag=f"{self.ainb_window}/tabs/json", label="Parsed JSON"):
+            with dpg.tab(tag=f"{self.tag}/tabs/json", label="Parsed JSON"):
                 with dpg.child_window(autosize_x=True, autosize_y=True):
                     with dpg.group(horizontal=True):
                         #dpg.add_button(label="Refresh JSON", callback=self.redump_json_textbox)
-                        #dpg.add_checkbox(label="(Always refresh)", tag=f"{self.ainb_window}/tabs/json/autodump", default_value=True)
+                        #dpg.add_checkbox(label="(Always refresh)", tag=f"{self.tag}/tabs/json/autodump", default_value=True)
                         dpg.add_button(label="Apply Changes", callback=self.rerender_graph_from_json)
                         #      dpg.add_button(label="Overwrite AINB") duh
                         #      dpg.add_button(label="Open JSON in: ", source="jsdfl/opencmd")
