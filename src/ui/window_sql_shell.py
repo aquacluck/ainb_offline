@@ -26,13 +26,14 @@ class WindowSqlShell:
     def __init__(self):
         self.query_history: List[QueryHistoryEntry] = []
 
-    def create(self, immediate_query: str = None):
+    def create(self, immediate_query: str = None) -> DpgTag:
         with dpg.window(label="SQL Shell", width=800, height=600, pos=[600, 200]) as dpg_window:
-            self.dpg_window = dpg_window
+            self.tag = dpg_window
             self.output_group = dpg.add_group()
             qbox = self.append_new_query_prompt()
             if immediate_query:
                 dpg.set_value(qbox, immediate_query)
+        return dpg_window
 
     def append_new_query_prompt(self):
         def callback(sender, query, entry):

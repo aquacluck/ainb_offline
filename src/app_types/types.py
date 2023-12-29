@@ -16,6 +16,12 @@ class ConstDottableStringSet(set):
         return key if key in self else super().__getattribute__(key)
 
 
+# dpg can identify items by alias or int id, and accepts these interchangeably. However we need to be
+# aware of which we have when constructing nested aliases, and eg sender args can introduce ints.
+# Use dpg.get_item_alias(id) to normalize.
+DpgTag = Union[int, str]
+
+
 # Pending ui representation of node links gathered while rendering an ainb graph's nodes.
 # The nodes are visually linked up only after they're all rendered, dpg requires this.
 @dataclass
@@ -24,7 +30,7 @@ class DeferredNodeLinkCall:
     dst_attr: str
     src_node_i: int
     dst_node_i: int
-    parent: Union[int, str]
+    parent: DpgTag
 
 
 # These represent mutations for the AINB.output_dict json dict
