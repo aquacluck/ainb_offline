@@ -6,9 +6,9 @@ from collections import defaultdict
 
 import dearpygui.dearpygui as dpg
 
-from ..dt_ainb.ainb import AINB
 from ..app_ainb_cache import scoped_pack_lookup
 from ..edit_context import EditContext
+from ..mutable_ainb import MutableAinb
 from .. import pack_util
 from ..app_types import *
 
@@ -62,11 +62,9 @@ def make_node_theme_for_hue(hue: AppColor):
 
 class WindowAinbGraph:
     def __init__(self, ainb_location: PackIndexEntry, ectx: EditContext):
-        self.ainb_location = ainb_location
+        print(f"Opening {ainb_location.fullfile}")
         self.ectx = ectx
-
-        print(f"Opening {self.ainb_location.fullfile}")
-        self.ainb = self.ectx.load_ainb(self.ainb_location)
+        self.ainb = self.ectx.load_ainb(ainb_location)
 
     @property
     def node_editor(self) -> DpgTag:
@@ -77,15 +75,15 @@ class WindowAinbGraph:
         return f"{self.tag}/tabs/json/textbox"
 
     def create(self, **window_kwargs) -> DpgTag:
-        category, ainbfile = pathlib.Path(self.ainb_location.internalfile).parts
-        if self.ainb_location.packfile == "Root":
+        category, ainbfile = pathlib.Path(self.ainb.location.internalfile).parts
+        if self.ainb.location.packfile == "Root":
             window_label = f"[{category}] {ainbfile}"
         else:
-            window_label = f"[{category}] {ainbfile} [from {self.ainb_location.packfile}]"
+            window_label = f"[{category}] {ainbfile} [from {self.ainb.location.packfile}]"
 
         self.tag = dpg.add_window(
             label=window_label,
-            on_close=lambda: self.ectx.close_ainb_window(self.ainb_location),
+            on_close=lambda: self.ectx.close_ainb_window(self.ainb.location),
             **window_kwargs,
         )
         self.render_contents()
@@ -93,7 +91,7 @@ class WindowAinbGraph:
 
     def redump_json_textbox(self):
         # Replace json textbox with working ainb (possibly dirty)
-        ainb_json_str = json.dumps(self.ainb.output_dict, indent=4)
+        ainb_json_str = json.dumps(self.ainb.json, indent=4)
         dpg.set_value(self.json_textbox, ainb_json_str)
 
     def rerender_graph_from_json(self):
@@ -101,7 +99,7 @@ class WindowAinbGraph:
 
         # Send event to edit ctx
         edit_op = AinbEditOperation(op_type=AinbEditOperationTypes.REPLACE_JSON, op_value=user_json_str)
-        self.ectx.perform_new_edit_operation(self.ainb_location, self.ainb, edit_op)
+        self.ectx.perform_new_edit_operation(self.ainb, edit_op)
 
         # Re-render editor TODO this belongs in AinbGraphEditor?
         dpg.delete_item(self.node_editor)
@@ -122,7 +120,7 @@ class WindowAinbGraph:
             # dpg.add_tab_button(label="wipe cache")
             with dpg.tab(tag=f"{self.tag}/tabs/graph", label="Node Graph"):
                 with dpg.child_window(autosize_x=True, autosize_y=True) as graph_window:
-                    self.editor = AinbGraphEditor.create(tag=self.node_editor, parent=graph_window, ainb=self.ainb, ainb_location=self.ainb_location)
+                    self.editor = AinbGraphEditor.create(tag=self.node_editor, parent=graph_window, ainb=self.ainb)
 
             with dpg.tab(tag=f"{self.tag}/tabs/json", label="Parsed JSON"):
                 with dpg.child_window(autosize_x=True, autosize_y=True):
@@ -136,24 +134,23 @@ class WindowAinbGraph:
                     dpg.add_input_text(tag=self.json_textbox, default_value="any slow dumps?", width=-1, height=-1, multiline=True, tab_input=True, readonly=False)
                     self.redump_json_textbox()
 
-            save_ainb = lambda: self.ectx.save_ainb(self.ainb_location, self.ainb)
+            save_ainb = lambda: self.ectx.save_ainb(self.ainb)
             dpg.add_tab_button(label="Save to modfs", callback=save_ainb)
 
 
 class AinbGraphEditor:
     @classmethod
-    def create(cls, tag: DpgTag, parent: DpgTag, ainb: AINB, ainb_location: PackIndexEntry) -> "AinbGraphEditor":
+    def create(cls, tag: DpgTag, parent: DpgTag, ainb: MutableAinb) -> "AinbGraphEditor":
         editor = cls(tag=tag, parent=parent)
-        editor.set_ainb(ainb, ainb_location)
+        editor.set_ainb(ainb)
         return editor
 
     def __init__(self, tag: DpgTag, parent: DpgTag):
         self.tag = tag
         self.parent = parent
 
-    def set_ainb(self, ainb: AINB, ainb_location: PackIndexEntry) -> None:
+    def set_ainb(self, ainb: MutableAinb) -> None:
         self.ainb = ainb
-        self.ainb_location = ainb_location
         # TODO clear contents?
         self.render_contents()
 
@@ -183,8 +180,8 @@ class AinbGraphEditor:
         self.render_ainb_nodes()
 
     def render_ainb_nodes(self):
-        aj = self.ainb.output_dict  # ainb json. we call him aj
-        category, _ainbfile = pathlib.Path(self.ainb_location.internalfile).parts
+        aj = self.ainb.json  # ainb json. we call him aj
+        category, _ainbfile = pathlib.Path(self.ainb.location.internalfile).parts
 
         # TODO special layout+style for globals node (and move node nearby when hovering on a consuming param?)
         # TODO globals links, eg <Assassin_Senior.action.interuptlargedamage.module>.nodes[0].#ASCommand["Global Parameters Index"] == 0 points to $ASName="LargeDamagge"
@@ -223,7 +220,7 @@ class AinbGraphEditor:
 
         # Determine each node's depth = x coord
         node_max_depth_map = defaultdict(int)  # commands start at 0
-        for command_i, command in enumerate(self.ainb.output_dict.get("Commands", [])):
+        for command_i, command in enumerate(self.ainb.json.get("Commands", [])):
             node_i = command["Left Node Index"]
             if node_i == -1:
                 continue
@@ -276,7 +273,7 @@ class AinbGraphEditorNode:
 
     @property
     def node_json(self) -> dict:
-        return self.editor.ainb.output_dict["Nodes"][self.node_i]
+        return self.editor.ainb.json["Nodes"][self.node_i]
 
     @property
     def tag(self) -> DpgTag:
@@ -332,7 +329,7 @@ class AinbGraphEditorGlobalsNode(AinbGraphEditorNode):
     @property
     def node_json(self) -> dict:
         # TODO AinbGraphEditor.get_node_json("Globals") instead?
-        return self.editor.ainb.output_dict
+        return self.editor.ainb.json
 
     @property
     def tag(self) -> DpgTag:
@@ -351,7 +348,7 @@ class AinbGraphEditorRenderHelpers:
         with dpg.node_attribute(tag=f"{node.tag}/LinkTarget", attribute_type=dpg.mvNode_Attr_Input):
             # TODO editor.commands: List[AinbGraphEditorCommand]
             # editor.get_command_json(name: str) -> dict
-            for command_i, command in enumerate(node.editor.ainb.output_dict.get("Commands", [])):
+            for command_i, command in enumerate(node.editor.ainb.json.get("Commands", [])):
                 if node.node_i == command["Left Node Index"]:
                     cmd_name = command["Name"]
                     dpg.add_text(f"@ Command[{cmd_name}]")
@@ -361,14 +358,14 @@ class AinbGraphEditorRenderHelpers:
 
             for aj_flag in node.node_json.get("Flags", []):
                 if aj_flag == "Is External AINB":
-                    for aref in node.editor.ainb.output_dict["Embedded AINB Files"]:
+                    for aref in node.editor.ainb.json["Embedded AINB Files"]:
                         if aref["File Path"] != node.node_json["Name"] + ".ainb":
                             continue
 
                         #print(aref["Count"]) ...instance/link count? TODO
 
                         dest_ainbfile = aref["File Category"] + '/' + aref["File Path"]
-                        dest_location = scoped_pack_lookup(PackIndexEntry(internalfile=dest_ainbfile, packfile=node.editor.ainb_location.packfile, extension="ainb"))
+                        dest_location = scoped_pack_lookup(PackIndexEntry(internalfile=dest_ainbfile, packfile=node.editor.ainb.location.packfile, extension="ainb"))
                         with dpg.group(horizontal=True):
                             dpg.add_text(f'@ ExternalAINB[{aref["File Category"]}] {aref["File Path"]}')
                             dpg.add_button(
@@ -421,7 +418,7 @@ class AinbGraphEditorRenderHelpers:
                     op_value = data  # TODO debounce/merge history entries while immediately acting on all
                     edit_op = AinbEditOperation(op_type=AinbEditOperationTypes.PARAM_UPDATE_DEFAULT, op_value=op_value, op_selector=op_selector)
                     # XXX ideally plumb in ectx, or send this up through the editor?
-                    EditContext.get().perform_new_edit_operation(node.editor.ainb_location, node.editor.ainb, edit_op)
+                    EditContext.get().perform_new_edit_operation(node.editor.ainb, edit_op)
 
                 node_attr_tag_ns = f"{node.tag}/Params/{param_section}/{param_name}"
                 ui_input_tag = f"{node_attr_tag_ns}/ui_input"
@@ -524,7 +521,7 @@ class AinbGraphEditorRenderHelpers:
                         list_of_nodeparams = local_param["Sources"]
                         for multi_item in list_of_nodeparams:
                             multi_i = multi_item["Node Index"]
-                            multi_item_param_name = node.editor.ainb.output_dict["Nodes"][multi_i]["Output Parameters"][local_type][multi_item["Parameter Index"]]["Name"]
+                            multi_item_param_name = node.editor.ainb.json["Nodes"][multi_i]["Output Parameters"][local_type][multi_item["Parameter Index"]]["Name"]
                             remote_multi_attr_tag = f"{node.editor.tag}/node{multi_i}/Params/Output Parameters/{multi_item_param_name}"
                             my_attr_tag = f"{node.tag}/Params/Input Parameters/{local_param_name}"
                             output_attr_links.append(DeferredNodeLinkCall(
@@ -564,7 +561,7 @@ class AinbGraphEditorRenderHelpers:
 
         # Resolve whatever the param is called in the remote node, we need this for visually linking to the remote
         remote_param_name = None
-        remote_params = node.editor.ainb.output_dict["Nodes"][remote_i].get(remote_param_direction, {}).get(remote_type, [])
+        remote_params = node.editor.ainb.json["Nodes"][remote_i].get(remote_param_direction, {}).get(remote_type, [])
         if parameter_index is not None and parameter_index >= len(remote_params):
             # TODO Something from multis leaking, or some other lookup...?
             # FIXME AI/PhantomGanon.metaai.root.ainb, and Bool business

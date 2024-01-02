@@ -6,6 +6,7 @@ import os
 import shutil
 
 from .app_types import *
+from .mutable_ainb import MutableAinb
 from .dt_ainb.ainb import AINB
 # XXX deferred from .ui.window_ainb_graph import WindowAinbGraph
 from . import pack_util
@@ -41,16 +42,18 @@ class EditContext:
     def close_ainb_window(self, ainb_location: PackIndexEntry) -> None:
         del self.open_windows[ainb_location.fullfile]
 
-    def load_ainb(self, ainb_location: PackIndexEntry) -> AINB:
+    def load_ainb(self, ainb_location: PackIndexEntry) -> MutableAinb:
         # Resolve through modfs, modfs packs, ...
         if ainb_location.packfile == "Root":
             modfs_ainbfile = pathlib.Path(f"{self.modfs}/{ainb_location.internalfile}")
             if modfs_ainbfile.exists():
-                return AINB(open(modfs_ainbfile, "rb").read())
+                ainb = AINB(open(modfs_ainbfile, "rb").read())
+                return MutableAinb.from_dt_ainb(ainb, ainb_location)
 
             romfs_ainbfile = pathlib.Path(f"{self.romfs}/{ainb_location.internalfile}")
             if romfs_ainbfile.exists():
-                return AINB(open(romfs_ainbfile, "rb").read())
+                ainb = AINB(open(romfs_ainbfile, "rb").read())
+                return MutableAinb.from_dt_ainb(ainb, ainb_location)
 
             raise FileNotFoundError(f"Failed to resolve: {ainb_location.fullfile}")
 
@@ -58,19 +61,21 @@ class EditContext:
             modfs_packfile = pathlib.Path(f"{self.modfs}/{ainb_location.packfile}")
             if modfs_packfile.exists():
                 try:
-                    return AINB(pack_util.load_file_from_pack(modfs_packfile, ainb_location.internalfile))
+                    ainb = AINB(pack_util.load_file_from_pack(modfs_packfile, ainb_location.internalfile))
+                    return MutableAinb.from_dt_ainb(ainb, ainb_location)
                 except KeyError:
                     pass  # Other tools+workflows might create incomplete packs, just fall back to romfs
 
             romfs_packfile = pathlib.Path(f"{self.romfs}/{ainb_location.packfile}")
             if romfs_packfile.exists():
-                return AINB(pack_util.load_file_from_pack(romfs_packfile, ainb_location.internalfile))
+                ainb = AINB(pack_util.load_file_from_pack(romfs_packfile, ainb_location.internalfile))
+                return MutableAinb.from_dt_ainb(ainb, ainb_location)
 
             raise FileNotFoundError(f"Failed to resolve: {ainb_location.fullfile}")
 
-    def save_ainb(self, ainb_location: PackIndexEntry, dirty_ainb: AINB):
-        # AINB.output_dict is not intended to be modified, so other AINB members are stale
-        updated_ainb = AINB(dirty_ainb.output_dict, from_dict=True)
+    def save_ainb(self, dirty_ainb: MutableAinb):
+        updated_ainb = AINB(dirty_ainb.json, from_dict=True)
+        ainb_location = dirty_ainb.location
 
         if ainb_location.packfile == "Root":
             modfs_ainbfile = pathlib.Path(f"{self.modfs}/{ainb_location.internalfile}")
@@ -95,19 +100,21 @@ class EditContext:
             print(f"Saved {ainb_location.fullfile}")
             return
 
-    def perform_new_edit_operation(self, ainb_location: PackIndexEntry, ainb: AINB, edit_op: AinbEditOperation):
+    def perform_new_edit_operation(self, ainb: MutableAinb, edit_op: AinbEditOperation):
+        # TODO perform ops inside MutableAinb
+
         # Store operation
         # TODO: save history on every operation and clear list (or keep a current entry tagged) upon export. eg crash recovery
         # TODO: keep timestamps and merge like operations into one latest? eg constant slider inputs, instead of debounce
-        if ainb_location.fullfile not in self.edit_histories:
-            self.edit_histories[ainb_location.fullfile] = []
-        self.edit_histories[ainb_location.fullfile].append(edit_op)
+        if ainb.location.fullfile not in self.edit_histories:
+            self.edit_histories[ainb.location.fullfile] = []
+        self.edit_histories[ainb.location.fullfile].append(edit_op)
 
         # Perform operation
         if edit_op.op_type == AinbEditOperationTypes.REPLACE_JSON:
-            ainb.output_dict.clear()
-            ainb.output_dict.update(json.loads(edit_op.op_value))
-            print(f"Overwrote working ainb @ {ainb_location.fullfile}")
+            ainb.json.clear()
+            ainb.json.update(json.loads(edit_op.op_value))
+            print(f"Overwrote working ainb @ {ainb.location.fullfile}")
         elif edit_op.op_type == AinbEditOperationTypes.PARAM_UPDATE_DEFAULT:
             # TODO generalize this into any path assignment? creating missing objs + being careful w mutability/refs...
             # For now we just hardcode support for the selector shapes we use.
@@ -121,9 +128,9 @@ class EditContext:
             # aj["Global Parameters"][aj_type][i_of_type]["Default Value"] = op_value
 
             if sel[1] == -420 and sel[2] == ParamSectionName.GLOBAL:
-                target_params = ainb.output_dict[ParamSectionName.GLOBAL]
+                target_params = ainb.json[ParamSectionName.GLOBAL]
             else:
-                target_params = ainb.output_dict[sel[0]][sel[1]][sel[2]]
+                target_params = ainb.json[sel[0]][sel[1]][sel[2]]
 
             param_type, i_of_type, default_name = sel[3], sel[4], sel[5]
             if param_type == "vec3f":

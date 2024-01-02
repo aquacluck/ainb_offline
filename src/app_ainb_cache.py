@@ -124,19 +124,19 @@ def inspect_ainb_pack(conn: sqlite3.Connection, rootfs: str, packfile: str, pack
     for internalfile, data in pack_data.items():
         if packfile == "Root":
             data = memoryview(open(f"{rootfs}/{internalfile}", "rb").read())
-        ainb = AINB(data)
+        ainb_json = AINB(data).output_dict
 
         # TODO index file level info in another table?
         fullfile = PackIndexEntry(packfile=packfile, internalfile=internalfile, extension="ainb").fullfile
-        file_category = ainb.output_dict["Info"]["File Category"]
-        #file_globals = ainb.output_dict.get(ParamSectionName.GLOBAL, {})
+        file_category = ainb_json["Info"]["File Category"]
+        #file_globals = ainb_json.get(ParamSectionName.GLOBAL, {})
         #AinbFileInfoIndex.add(fullfile, file_category, file_globals)
 
         # TODO additional table for userdefined classes/instantiation/??? detail,
         # since just counting userdefineds leaves a lot of type info out.
         # might be able to generally add metadata/flags/etc to all params this way?
 
-        for node_i, aj_node in enumerate(ainb.output_dict.get("Nodes", [])):
+        for node_i, aj_node in enumerate(ainb_json.get("Nodes", [])):
             node_type = aj_node["Node Type"]
             if node_type == "UserDefined":
                 node_type = aj_node["Name"]
