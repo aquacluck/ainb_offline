@@ -6,7 +6,7 @@ import os
 import shutil
 
 from .app_types import *
-from .mutable_ainb import MutableAinb
+from .mutable_ainb import MutableAinb, AinbEditOperationExecutor
 from .dt_ainb.ainb import AINB
 # XXX deferred from .ui.window_ainb_graph import WindowAinbGraph
 from . import pack_util
@@ -101,42 +101,21 @@ class EditContext:
             return
 
     def perform_new_edit_operation(self, ainb: MutableAinb, edit_op: AinbEditOperation):
-        # TODO perform ops inside MutableAinb
+        # Perform operation
+        AinbEditOperationExecutor.dispatch(ainb, edit_op)
 
-        # Store operation
-        # TODO: save history on every operation and clear list (or keep a current entry tagged) upon export. eg crash recovery
-        # TODO: keep timestamps and merge like operations into one latest? eg constant slider inputs, instead of debounce
+        # Store operation (after, so we won't store a crashing operation)
+        # TODO: persist history to db on every operation and set filehash upon export. eg crash recovery
         if ainb.location.fullfile not in self.edit_histories:
             self.edit_histories[ainb.location.fullfile] = []
-        self.edit_histories[ainb.location.fullfile].append(edit_op)
-
-        # Perform operation
-        if edit_op.op_type == AinbEditOperationTypes.REPLACE_JSON:
-            ainb.json.clear()
-            ainb.json.update(json.loads(edit_op.op_value))
-            print(f"Overwrote working ainb @ {ainb.location.fullfile}")
-        elif edit_op.op_type == AinbEditOperationTypes.PARAM_UPDATE_DEFAULT:
-            # TODO generalize this into any path assignment? creating missing objs + being careful w mutability/refs...
-            # For now we just hardcode support for the selector shapes we use.
-            # should steal the path format even if we don't use this: https://www.sqlite.org/json1.html
-            print(f"param default = {edit_op.op_value} @ {edit_op.op_selector}")
-            sel = edit_op.op_selector
-            if len(sel) != 6 or sel[0] != "Nodes" or sel[-1] not in ("Value", "Default Value"):
-                raise AssertionError(f"Cannot parse selector {sel}")
-            # The path is guaranteed to exist for this case, so no missing parts
-            # aj["Nodes"][i]["Immediate Parameters"][aj_type][i_of_type]["Value"] = op_value
-            # aj["Global Parameters"][aj_type][i_of_type]["Default Value"] = op_value
-
-            if sel[1] == -420 and sel[2] == ParamSectionName.GLOBAL:
-                target_params = ainb.json[ParamSectionName.GLOBAL]
+            self.edit_histories[ainb.location.fullfile].append(edit_op)
+            # persist history.db (insert edit_op)
+            #edit_op.filehash = "fakehash_first_edit"
+        else:
+            prev_op = self.edit_histories[ainb.location.fullfile][-1]
+            is_prev_op_amended = AinbEditOperationExecutor.try_merge_history(edit_op, prev_op)
+            if is_prev_op_amended:
+                pass # persist history.db (update prev_op)
             else:
-                target_params = ainb.json[sel[0]][sel[1]][sel[2]]
-
-            param_type, i_of_type, default_name = sel[3], sel[4], sel[5]
-            if param_type == "vec3f":
-                x, y, z, _ = edit_op.op_value
-                target_params[param_type][i_of_type][default_name][0] = x
-                target_params[param_type][i_of_type][default_name][1] = y
-                target_params[param_type][i_of_type][default_name][2] = z
-            else:
-                target_params[param_type][i_of_type][default_name] = edit_op.op_value
+                self.edit_histories[ainb.location.fullfile].append(edit_op)
+                # persist history.db (insert edit_op)

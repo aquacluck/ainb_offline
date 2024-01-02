@@ -1,4 +1,5 @@
 from __future__ import annotations
+from datetime import datetime, timedelta
 import json
 from typing import *
 
@@ -22,8 +23,8 @@ from .dt_ainb.ainb import AINB
 # - (Maintaining a large pool of these fragments objs might help performance for eg
 #   continuous slider inputs, we could reassign their reference as needed.)
 # - MutableAinb.json holds all ainb state, AinbGraph* reads from here to render ui,
-#   ui dispatches AinbEditOperations to EditContext, EditContext stores AinbEditOperations
-#   as history before sending them back to MutableAinb to execute, then ui may re-render.
+#   ui sends AinbEditOperations to EditContext, EditContext stores AinbEditOperations as
+#   history before sending them to AinbEditOperationExecutor to run, then ui may re-render.
 #   Simple edits may not need to re-render, this is up to EditContext to determine.
 
 
@@ -104,3 +105,82 @@ class MutableAinbNodeParam:
     def get_default_value_selector(self) -> AinbEditOperationDefaultValueSelector:
         op_selector = ("Nodes", self.node_i, self.param_section_name, self.param_type, self.i_of_type, self.param_default_name)
         return op_selector
+
+
+class AinbEditOperationExecutor:
+    @classmethod
+    def try_merge_history(excls, edit_op: AinbEditOperation, prev_op: AinbEditOperation) -> bool:
+        # Reduces consecutive edits into the granularity we want to persist
+
+        # TODO set AinbEditOperation.filehash upon exporting, on window close+confirm, ...
+        if edit_op.filehash is not None or prev_op.filehash is not None:
+            # Once a point in history has been persisted by user request, don't try to merge anything
+            # into it regardless of recency.
+            return False
+
+        opcls: OP_IMPL = getattr(excls, edit_op.op_type)
+        is_prev_op_amended = opcls.try_merge_history(edit_op, prev_op)
+        return is_prev_op_amended
+
+    @classmethod
+    def dispatch(excls, ainb: MutableAinb, edit_op: AinbEditOperation):
+        # resolve the op to one of the classes below and run it on the ainb
+        opcls: OP_IMPL = getattr(excls, edit_op.op_type)
+        opcls.execute(ainb, edit_op)
+
+    class OP_IMPL:
+        @staticmethod
+        def try_merge_history(*_, **__) -> bool:
+            # Mutates prev_op to match edit_op when applicable, returning True when this happens
+            return False  # Don't merge by default
+
+        @staticmethod
+        def execute(ainb: MutableAinb, edit_op: AinbEditOperation):
+            # Edits ainb according to edit_op
+            raise NotImplementedError()
+
+    class REPLACE_JSON(OP_IMPL):
+        # No merge, clicking this button feels like saving your json
+        @staticmethod
+        def execute(ainb: MutableAinb, edit_op: AinbEditOperation):
+            ainb.json.clear()
+            ainb.json.update(json.loads(edit_op.op_value))
+            print(f"Overwrote working ainb @ {ainb.location.fullfile}")
+
+    class PARAM_UPDATE_DEFAULT(OP_IMPL):
+        @staticmethod
+        def try_merge_history(edit_op: AinbEditOperation, prev_op: AinbEditOperation) -> bool:
+            if (edit_op.when - prev_op.when) > timedelta(seconds=2):
+                return False  # Too far apart, don't merge
+            if edit_op.op_selector != prev_op.op_selector:
+                return False  # Different targets, don't merge (this means selectors:targets should be 1:1)
+
+            prev_op.when = edit_op.when  # Bump time, allowing us to keep amending this entry
+            prev_op.op_value = edit_op.op_value  # Value may be same or different, doesn't matter here
+            return True  # prev_op should be re-persisted, current op is good to execute
+
+        @staticmethod
+        def execute(ainb: MutableAinb, edit_op: AinbEditOperation):
+            print(f"param default = {edit_op.op_value} @ {edit_op.op_selector}")
+            sel = edit_op.op_selector
+            if len(sel) != 6 or sel[0] != "Nodes" or sel[-1] not in ("Value", "Default Value"):
+                raise AssertionError(f"Cannot parse selector {sel}")
+
+            # The path is guaranteed to exist for this case, so no missing parts
+            # aj["Nodes"][i]["Immediate Parameters"][aj_type][i_of_type]["Value"] = op_value
+            # aj["Global Parameters"][aj_type][i_of_type]["Default Value"] = op_value
+
+            if sel[1] == -420 and sel[2] == ParamSectionName.GLOBAL:
+                target_params = ainb.json[ParamSectionName.GLOBAL]
+            else:
+                target_params = ainb.json[sel[0]][sel[1]][sel[2]]
+
+            param_type, i_of_type, default_name = sel[3], sel[4], sel[5]
+            if param_type == "vec3f":
+                x, y, z, _ = edit_op.op_value
+                target_params[param_type][i_of_type][default_name][0] = x
+                target_params[param_type][i_of_type][default_name][1] = y
+                target_params[param_type][i_of_type][default_name][2] = z
+            else:
+                target_params[param_type][i_of_type][default_name] = edit_op.op_value
+

@@ -1,5 +1,6 @@
 import colorsys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime
 from typing import *
 import pathlib
 
@@ -48,6 +49,8 @@ class AinbEditOperation:
     op_type: AinbEditOperationTypes
     op_value: Any
     op_selector: Union[AinbEditOperationDefaultValueSelector] = None
+    when: datetime = field(default_factory=datetime.now)
+    filehash = None  # TODO this should be set on certain persist+export events
 
 
 @dataclass(frozen=True)
