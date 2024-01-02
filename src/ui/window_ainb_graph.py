@@ -209,7 +209,7 @@ class AinbGraphEditor:
         with dpg.group(horizontal=True, parent=self.parent):
             dpg.add_button(label=f"Add Node")
             # TODO manually managed popup we can close/destroy/etc
-            # TODO sections for elements + userdefined + module nodes
+            # TODO divvy up filters+separators like index window, so our ui sectioning works
             # TODO actually insert the node
             with dpg.popup(dpg.last_item(), mousebutton=dpg.mvMouseButton_Left, min_size=(1024, 768), max_size=(1024, 768)):
                 file_cat = self.ainb.json["Info"]["File Category"]
@@ -218,7 +218,13 @@ class AinbGraphEditor:
                 fset = dpg.generate_uuid()
                 finput = dpg.add_input_text(hint="Node Type...", callback=lambda s, a: dpg.set_value(fset, a))
                 with dpg.filter_set(tag=fset):
-                    for (node_type, param_names_json) in node_usages:
+                    prev_section = None
+                    for (node_type, param_names_json, section) in node_usages:
+                        if prev_section and section != prev_section:
+                            # Separator between builtins, userdefined, external ainb
+                            dpg.add_separator()
+                        prev_section = section
+
                         with dpg.group(horizontal=True, filter_key=node_type, user_data=param_names_json):
                             dpg.add_text(node_type)
                             dpg.add_text(param_names_json)

@@ -47,7 +47,7 @@ class MutableAinb:
         return MutableAinbNode.from_ref(self.json["Nodes"][i])
 
     def get_node_len(self) -> int:
-        return len(self.json["Nodes"])
+        return len(self.json.get("Nodes", []))
 
     def get_global_param_section(self) -> Optional[MutableAinbNodeParamSection]:
         if section := self.json.get(ParamSectionName.GLOBAL):
