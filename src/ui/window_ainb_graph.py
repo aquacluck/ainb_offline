@@ -11,7 +11,7 @@ import dearpygui.dearpygui as dpg
 from ..app_ainb_cache import scoped_pack_lookup
 from ..edit_context import EditContext
 from ..mutable_ainb import MutableAinb, MutableAinbNodeParam
-from .. import pack_util
+from .. import db, pack_util
 from ..app_types import *
 
 
@@ -155,9 +155,6 @@ class WindowAinbGraph:
             if entered_tab == f"{self.tag}/tabs/history" and is_autodump:
                 self.rerender_history()
 
-        # from .db.ainb_file_param_name_usage_index import AinbFileParamNameUsageIndex
-        # node_usages = AinbFileParamNameUsageIndex.get_node_types(db.Connection.get(), "AI")
-
         with dpg.tab_bar(tag=f"{self.tag}/tabs", parent=self.tag, callback=_tab_change):
             # dpg.add_tab_button(label="[max]", callback=dpg.maximize_viewport)  # works at runtime, fails at init?
             # dpg.add_tab_button(label="wipe cache")
@@ -208,6 +205,26 @@ class AinbGraphEditor:
             dpg.add_node_link(app_data[0], app_data[1], parent=sender)
         def _delink_callback(sender, app_data):
             dpg.delete_item(app_data)
+
+        with dpg.group(horizontal=True, parent=self.parent):
+            dpg.add_button(label=f"Add Node")
+            # TODO manually managed popup we can close/destroy/etc
+            # TODO sections for elements + userdefined + module nodes
+            # TODO actually insert the node
+            with dpg.popup(dpg.last_item(), mousebutton=dpg.mvMouseButton_Left, min_size=(1024, 768), max_size=(1024, 768)):
+                file_cat = self.ainb.json["Info"]["File Category"]
+                node_usages = db.AinbFileParamNameUsageIndex.get_node_types(db.Connection.get(), file_cat)
+
+                fset = dpg.generate_uuid()
+                finput = dpg.add_input_text(hint="Node Type...", callback=lambda s, a: dpg.set_value(fset, a))
+                with dpg.filter_set(tag=fset):
+                    for (node_type, param_names_json) in node_usages:
+                        with dpg.group(horizontal=True, filter_key=node_type, user_data=param_names_json):
+                            dpg.add_text(node_type)
+                            dpg.add_text(param_names_json)
+
+                dpg.focus_item(finput)
+
 
         # TODO top bar, might replace tabs?
         # - "jump to" node list dropdown

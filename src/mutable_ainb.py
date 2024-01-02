@@ -2,6 +2,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 import json
 from typing import *
+import uuid
 
 import dearpygui.dearpygui as dpg
 
@@ -139,6 +140,30 @@ class AinbEditOperationExecutor:
             # Edits ainb according to edit_op
             raise NotImplementedError()
 
+    class ADD_NODE(OP_IMPL):
+        # No merge
+        @staticmethod
+        def execute(ainb: MutableAinb, edit_op: AinbEditOperation):
+            # Duplicate so the caller can't mutate it
+            node_json = json.loads(json.dumps(edit_op.op_value))
+
+            assert node_json.get("Node Type")
+
+            # Mint a guid - could be nice to have I dunno
+            if guid := node_json.get("GUID") is None:
+                node_json["GUID"] = str(uuid.uuid4())
+
+            # Can this even happen?
+            if ainb.json.get("Nodes") is None:
+                print("it happened")
+                ainb.json["Nodes"] = []
+
+            # Append + assign index
+            ainb.json["Nodes"].append(node_json)
+            node_json["Node Index"] = len(ainb.json["Nodes"]) - 1
+
+            print(f"Added node: {node_json}")
+
     class REPLACE_JSON(OP_IMPL):
         # No merge, clicking this button feels like saving your json
         @staticmethod
@@ -161,7 +186,7 @@ class AinbEditOperationExecutor:
 
         @staticmethod
         def execute(ainb: MutableAinb, edit_op: AinbEditOperation):
-            print(f"param default = {edit_op.op_value} @ {edit_op.op_selector}")
+            #print(f"param default = {edit_op.op_value} @ {edit_op.op_selector}")
             sel = edit_op.op_selector
             if len(sel) != 6 or sel[0] != "Nodes" or sel[-1] not in ("Value", "Default Value"):
                 raise AssertionError(f"Cannot parse selector {sel}")

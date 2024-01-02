@@ -36,6 +36,7 @@ class DeferredNodeLinkCall:
 
 # These represent mutations for the AINB.output_dict json dict
 AinbEditOperationTypes = ConstDottableStringSet({
+    "ADD_NODE",  # Use `op_value: str` as node json, executor assigns the Node Index
     "REPLACE_JSON",  # Overwrite entire ainb with `op_value: str` json
     "PARAM_UPDATE_DEFAULT",  # Set the "Value" to op_value for a param found with op_selector
 })
