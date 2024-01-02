@@ -40,11 +40,14 @@ AinbEditOperationTypes = ConstDottableStringSet({
 })
 
 
+AinbEditOperationDefaultValueSelector = Tuple[Union[str, int]]  # TODO better typing
+
+
 @dataclass
 class AinbEditOperation:
     op_type: AinbEditOperationTypes
     op_value: Any
-    op_selector: Any = None
+    op_selector: Union[AinbEditOperationDefaultValueSelector] = None
 
 
 @dataclass(frozen=True)

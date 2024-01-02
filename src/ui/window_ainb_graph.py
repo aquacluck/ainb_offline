@@ -1,3 +1,4 @@
+from __future__ import annotations
 import functools
 import json
 import pathlib
@@ -8,7 +9,7 @@ import dearpygui.dearpygui as dpg
 
 from ..app_ainb_cache import scoped_pack_lookup
 from ..edit_context import EditContext
-from ..mutable_ainb import MutableAinb
+from ..mutable_ainb import MutableAinb, MutableAinbNodeParam
 from .. import pack_util
 from ..app_types import *
 
@@ -140,7 +141,7 @@ class WindowAinbGraph:
 
 class AinbGraphEditor:
     @classmethod
-    def create(cls, tag: DpgTag, parent: DpgTag, ainb: MutableAinb) -> "AinbGraphEditor":
+    def create(cls, tag: DpgTag, parent: DpgTag, ainb: MutableAinb) -> AinbGraphEditor:
         editor = cls(tag=tag, parent=parent)
         editor.set_ainb(ainb)
         return editor
@@ -186,11 +187,14 @@ class AinbGraphEditor:
         # TODO special layout+style for globals node (and move node nearby when hovering on a consuming param?)
         # TODO globals links, eg <Assassin_Senior.action.interuptlargedamage.module>.nodes[0].#ASCommand["Global Parameters Index"] == 0 points to $ASName="LargeDamagge"
         # Render globals as a type of node? Not sure if dumb, we do need to link/associate globals into nodes anyways somehow
-        if aj.get(ParamSectionName.GLOBAL):
-            globals_node = AinbGraphEditorGlobalsNode(editor=self)
+        if mutable_globals_section := self.ainb.get_global_param_section():
+            globals_node = AinbGraphEditorGlobalsNode(editor=self, section=mutable_globals_section)
             globals_node.render()
 
-        graph_nodes = [AinbGraphEditorNode(editor=self, node_i=node_i) for node_i, aj_node in enumerate(aj.get("Nodes", []))]
+        graph_nodes = [
+            AinbGraphEditorNode(editor=self, node=self.ainb.get_node_i(i))
+            for i in range(self.ainb.get_node_len())
+        ]
 
         # We can't link nodes that don't exist yet
         deferred_link_calls: List[DeferredNodeLinkCall] = []
@@ -220,8 +224,9 @@ class AinbGraphEditor:
 
         # Determine each node's depth = x coord
         node_max_depth_map = defaultdict(int)  # commands start at 0
-        for command_i, command in enumerate(self.ainb.json.get("Commands", [])):
-            node_i = command["Left Node Index"]
+        for command_i in range(self.ainb.get_command_len()):
+            command = self.ainb.get_command_i(command_i)
+            node_i = command.json["Left Node Index"]
             if node_i == -1:
                 continue
 
@@ -242,7 +247,7 @@ class AinbGraphEditor:
                         else:
                             node_max_depth_map[edge_i] = node_max_depth_map[node_i]
             walk_for_depth_map(node_i, 0)
-            command_named_coords[command["Name"]] = (0 * LAYOUT_X_SPACING, command_i * LAYOUT_Y_SPACING)
+            command_named_coords[command.json["Name"]] = (0 * LAYOUT_X_SPACING, command_i * LAYOUT_Y_SPACING)
 
         # Pan to entry point by subtracting the destination coords, putting them at effectively [0, 0]
         # cuz i dunno how to scroll the graph editor region itself
@@ -267,13 +272,17 @@ class AinbGraphEditor:
 
 
 class AinbGraphEditorNode:
-    def __init__(self, editor: AinbGraphEditor, node_i: int):
+    def __init__(self, editor: AinbGraphEditor, node: MutableAinbNode):
         self.editor = editor
-        self.node_i = node_i
+        self.node = node
+
+    @property
+    def node_i(self) -> int:
+        return self.node.json["Node Index"]
 
     @property
     def node_json(self) -> dict:
-        return self.editor.ainb.json["Nodes"][self.node_i]
+        return self.node.json
 
     @property
     def tag(self) -> DpgTag:
@@ -293,9 +302,12 @@ class AinbGraphEditorNode:
         rh = AinbGraphEditorRenderHelpers
         with dpg.node(tag=f"{self.tag}/Node", label=label, parent=self.editor.tag):
             rh.node_topmeta(self)
-            rh.node_param_section(self, ParamSectionName.IMMEDIATE)
-            rh.node_param_section(self, ParamSectionName.INPUT)
-            rh.node_param_section(self, ParamSectionName.OUTPUT)
+            if section := self.node.get_param_section(ParamSectionName.IMMEDIATE):
+                rh.node_param_section(self, section)
+            if section := self.node.get_param_section(ParamSectionName.INPUT):
+                rh.node_param_section(self, section)
+            if section := self.node.get_param_section(ParamSectionName.OUTPUT):
+                rh.node_param_section(self, section)
 
             for aj_link_type, aj_links in self.node_json.get("Linked Nodes", {}).items():
                 for i_of_link_type, aj_link in enumerate(aj_links):
@@ -319,8 +331,9 @@ class AinbGraphEditorNode:
 
 
 class AinbGraphEditorGlobalsNode(AinbGraphEditorNode):
-    def __init__(self, editor: AinbGraphEditor):
+    def __init__(self, editor: AinbGraphEditor, section: MutableAinbNodeParamSection):
         self.editor = editor
+        self.section = section
 
     @property
     def node_i(self) -> int:
@@ -328,7 +341,6 @@ class AinbGraphEditorGlobalsNode(AinbGraphEditorNode):
 
     @property
     def node_json(self) -> dict:
-        # TODO AinbGraphEditor.get_node_json("Globals") instead?
         return self.editor.ainb.json
 
     @property
@@ -338,7 +350,7 @@ class AinbGraphEditorGlobalsNode(AinbGraphEditorNode):
     def render(self):
         globals_node_theme = make_node_theme_for_hue(AppStyleColors.GRAPH_GLOBALS_HUE)
         with dpg.node(tag=f"{self.tag}/Node", label=ParamSectionName.GLOBAL, parent=self.editor.tag):
-            AinbGraphEditorRenderHelpers.node_param_section(self, ParamSectionName.GLOBAL)
+            AinbGraphEditorRenderHelpers.node_param_section(self, self.section)
         dpg.bind_item_theme(f"{self.tag}/Node", globals_node_theme)
 
 
@@ -391,103 +403,101 @@ class AinbGraphEditorRenderHelpers:
     # AI/PhantomGanon.metaai.root.json node 33 is its own precon?
     # TODO Set Pointer Flag Bit Zero, maybe more
     @staticmethod
-    def node_param_section(node: AinbGraphEditorNode, param_section: ParamSectionName):
-        typed_params: Dict[str, List[Dict]] = node.node_json.get(param_section, {})
+    def node_param_section(node: AinbGraphEditorNode, param_section: MutableAinbNodeParamSection):
+        typed_params: Dict[str, List[Dict]] = param_section.json
         for aj_type, aj_params in typed_params.items():
             i_of_type = -1
             for aj_param in aj_params:
                 i_of_type += 1
                 # TODO allow editing names, although this will break links? higher level rename for that might be better
-                param_name = aj_param.get("Name", AppErrorStrings.FAILNULL)
-
-                # How defaults are named in this param section's json
-                param_default_name = "Default Value" if param_section == ParamSectionName.GLOBAL else "Value"
-
                 # TODO displaying nulls + ui for nulling values
-                # Some dpg inputs (eg int) blow up when given a null, so we awkwardly omit any null arg
-                v = aj_param.get(param_default_name)
-                dpg_default_value_kwarg = {"default_value": v} if v is not None else {}
+                param = MutableAinbNodeParam.from_ref(aj_param, node.node_i, param_section.name, aj_type, i_of_type)
+                AinbGraphEditorRenderHelpers.node_param_render(node, param)
 
-                ui_label = f"{ParamSectionLegend[param_section]} {aj_type} {i_of_type}: {param_name}"
-                op_selector = ("Nodes", node.node_i, param_section, aj_type, i_of_type, param_default_name)
 
-                def on_edit(sender, data, op_selector):
-                    # TODO store jsonpath or something instead?
-                    # aj["Nodes"][i]["Immediate Parameters"][aj_type][i_of_type]["Value"] = op_value
-                    # aj["Global Parameters"][aj_type][i_of_type]["Default Value"] = op_value
-                    op_value = data  # TODO debounce/merge history entries while immediately acting on all
-                    edit_op = AinbEditOperation(op_type=AinbEditOperationTypes.PARAM_UPDATE_DEFAULT, op_value=op_value, op_selector=op_selector)
-                    # XXX ideally plumb in ectx, or send this up through the editor?
-                    EditContext.get().perform_new_edit_operation(node.editor.ainb, edit_op)
+    @staticmethod
+    def node_param_render(node: AinbGraphEditorNode, param: MutableAinbNodeParam):
+        # Some dpg inputs (eg int) blow up when given a null, so we awkwardly omit any null arg
+        v = param.json.get(param.param_default_name)
+        dpg_default_value_kwarg = {"default_value": v} if v is not None else {}
 
-                node_attr_tag_ns = f"{node.tag}/Params/{param_section}/{param_name}"
-                ui_input_tag = f"{node_attr_tag_ns}/ui_input"
-                with dpg.node_attribute(tag=node_attr_tag_ns, parent=f"{node.tag}/Node", attribute_type=ParamSectionDpgAttrType[param_section]):
-                    if param_section == ParamSectionName.OUTPUT:
-                        # not much to show unless we're planning to execute the graph?
-                        dpg.add_text(ui_label)
+        ui_label = f"{ParamSectionLegend[param.param_section_name]} {param.param_type} {param.i_of_type}: {param.name}"
+        op_selector = param.get_default_value_selector()
 
-                    elif aj_type == "int":
-                        dpg.add_input_int(tag=ui_input_tag, label=ui_label, width=80, user_data=op_selector, callback=on_edit, **dpg_default_value_kwarg)
-                    elif aj_type == "bool":
-                        dpg.add_checkbox(tag=ui_input_tag, label=ui_label, user_data=op_selector, callback=on_edit, **dpg_default_value_kwarg)
-                    elif aj_type == "float":
-                        dpg.add_input_float(tag=ui_input_tag, label=ui_label, width=100, user_data=op_selector, callback=on_edit, **dpg_default_value_kwarg)
-                    elif aj_type == "string":
-                        dpg.add_input_text(tag=ui_input_tag, label=ui_label, width=150, user_data=op_selector, callback=on_edit, **dpg_default_value_kwarg)
-                    elif aj_type == "vec3f":
-                        with dpg.group(horizontal=True):
-                            dpg.add_drag_floatx(tag=ui_input_tag, label=ui_label, width=300, user_data=op_selector, callback=on_edit, size=3, **dpg_default_value_kwarg)
+        def on_edit(sender, data, op_selector):
+            op_value = data  # TODO debounce/merge history entries while immediately acting on all
+            edit_op = AinbEditOperation(op_type=AinbEditOperationTypes.PARAM_UPDATE_DEFAULT, op_value=op_value, op_selector=op_selector)
+            # XXX ideally plumb in ectx, or send this up through the editor?
+            EditContext.get().perform_new_edit_operation(node.editor.ainb, edit_op)
 
-                            # dpg creates hidden popup windows for every vec3f which don't get cleaned up when the ainb window closes.
-                            # It's not worth leaking this much, TODO clean these up
-                            """
-                            if TitleVersion.get().is_totk:
-                                # invisible input that maintains a flipped north/south axis
-                                ui_input_inverted = f"{ui_input_tag}/mapviz/inverted"
-                                do_map_inversion = lambda d: (d[0], d[1], -1 * d[2], d[3])
+        node_attr_tag_ns = f"{node.tag}/Params/{param.param_section_name}/{param.name}"
+        ui_input_tag = f"{node_attr_tag_ns}/ui_input"
+        with dpg.node_attribute(tag=node_attr_tag_ns, parent=f"{node.tag}/Node", attribute_type=ParamSectionDpgAttrType[param.param_section_name]):
+            if param.param_section_name == ParamSectionName.OUTPUT:
+                # not much to show unless we're planning to execute the graph?
+                dpg.add_text(ui_label)
 
-                                def on_edit_inverted(sender, data, op_selector):
-                                    # update real input and send real
-                                    data = do_map_inversion(data)
-                                    dpg.set_value(ui_input_tag, data)
-                                    on_edit(sender, data, op_selector)
+            elif param.param_type == "int":
+                dpg.add_input_int(tag=ui_input_tag, label=ui_label, width=80, user_data=op_selector, callback=on_edit, **dpg_default_value_kwarg)
+            elif param.param_type == "bool":
+                dpg.add_checkbox(tag=ui_input_tag, label=ui_label, user_data=op_selector, callback=on_edit, **dpg_default_value_kwarg)
+            elif param.param_type == "float":
+                dpg.add_input_float(tag=ui_input_tag, label=ui_label, width=100, user_data=op_selector, callback=on_edit, **dpg_default_value_kwarg)
+            elif param.param_type == "string":
+                dpg.add_input_text(tag=ui_input_tag, label=ui_label, width=150, user_data=op_selector, callback=on_edit, **dpg_default_value_kwarg)
+            elif param.param_type == "vec3f":
+                with dpg.group(horizontal=True):
+                    dpg.add_drag_floatx(tag=ui_input_tag, label=ui_label, width=300, user_data=op_selector, callback=on_edit, size=3, **dpg_default_value_kwarg)
 
-                                def on_edit_do_invert(sender, data, op_selector):
-                                    # update inverted input and send real
-                                    dpg.set_value(ui_input_inverted, do_map_inversion(data))
-                                    on_edit(sender, data, op_selector)
+                    # dpg creates hidden popup windows for every vec3f which don't get cleaned up when the ainb window closes.
+                    # It's not worth leaking this much, TODO clean these up
+                    """
+                    if TitleVersion.get().is_totk:
+                        # invisible input that maintains a flipped north/south axis
+                        ui_input_inverted = f"{ui_input_tag}/mapviz/inverted"
+                        do_map_inversion = lambda d: (d[0], d[1], -1 * d[2], d[3])
 
-                                # Initialize linked inputs
-                                dpg.add_drag_floatx(tag=ui_input_tag, label=ui_label, width=300, user_data=op_selector, callback=on_edit_do_invert, size=3, **dpg_default_value_kwarg)
-                                dpg.add_drag_floatx(tag=ui_input_inverted, show=False, size=3)
-                                dpg.set_value(ui_input_inverted, do_map_inversion(dpg.get_value(ui_input_tag)))
+                        def on_edit_inverted(sender, data, op_selector):
+                            # update real input and send real
+                            data = do_map_inversion(data)
+                            dpg.set_value(ui_input_tag, data)
+                            on_edit(sender, data, op_selector)
 
-                                # TODO lil map button or globe or something
-                                dpg.add_button(label=f"{node_attr_tag_ns}/mapvizbutton", arrow=True, direction=dpg.mvDir_Right)
-                                with dpg.popup(dpg.last_item(), mousebutton=dpg.mvMouseButton_Left, min_size=(250, 260), max_size=(250, 260)):
-                                    dpg.add_3d_slider(
-                                        tag=f"{node_attr_tag_ns}/mapviz",
-                                        source=ui_input_inverted,
-                                        callback=on_edit_inverted,
-                                        user_data=op_selector,
-                                        # not desirable, i just don't see how to make the ui render otherwise
-                                        label="(north-south negated like ingame)",
-                                        min_x = -6000.0,  # west
-                                        min_y = -3500.0,  # far down, i dunno
-                                        min_z = -5000.0,  # north (but shown positive in game+mapviz)
-                                        max_x = +6000.0,  # east
-                                        max_y = +3500.0,  # a bit above sky limit?
-                                        max_z = +5000.0,  # south (but shown negative in game+mapviz)
-                                    )
-                                    dpg.add_image(AppStaticTextureKeys.TOTK_MAP_PICKER_250, pos=(0,0))
-                            """
+                        def on_edit_do_invert(sender, data, op_selector):
+                            # update inverted input and send real
+                            dpg.set_value(ui_input_inverted, do_map_inversion(data))
+                            on_edit(sender, data, op_selector)
 
-                    elif aj_type == "userdefined":
-                        dpg.add_input_text(tag=ui_input_tag, label=ui_label, width=300, user_data=op_selector, callback=on_edit, **dpg_default_value_kwarg)
-                    else:
-                        err_label = f"bruh typo in ur type {aj_type}"
-                        dpg.add_text(tag=ui_input_tag, label=err_label, width=300, **dpg_default_value_kwarg)
+                        # Initialize linked inputs
+                        dpg.add_drag_floatx(tag=ui_input_tag, label=ui_label, width=300, user_data=op_selector, callback=on_edit_do_invert, size=3, **dpg_default_value_kwarg)
+                        dpg.add_drag_floatx(tag=ui_input_inverted, show=False, size=3)
+                        dpg.set_value(ui_input_inverted, do_map_inversion(dpg.get_value(ui_input_tag)))
+
+                        # TODO lil map button or globe or something
+                        dpg.add_button(label=f"{node_attr_tag_ns}/mapvizbutton", arrow=True, direction=dpg.mvDir_Right)
+                        with dpg.popup(dpg.last_item(), mousebutton=dpg.mvMouseButton_Left, min_size=(250, 260), max_size=(250, 260)):
+                            dpg.add_3d_slider(
+                                tag=f"{node_attr_tag_ns}/mapviz",
+                                source=ui_input_inverted,
+                                callback=on_edit_inverted,
+                                user_data=op_selector,
+                                # not desirable, i just don't see how to make the ui render otherwise
+                                label="(north-south negated like ingame)",
+                                min_x = -6000.0,  # west
+                                min_y = -3500.0,  # far down, i dunno
+                                min_z = -5000.0,  # north (but shown positive in game+mapviz)
+                                max_x = +6000.0,  # east
+                                max_y = +3500.0,  # a bit above sky limit?
+                                max_z = +5000.0,  # south (but shown negative in game+mapviz)
+                            )
+                            dpg.add_image(AppStaticTextureKeys.TOTK_MAP_PICKER_250, pos=(0,0))
+                    """
+
+            elif param.param_type == "userdefined":
+                dpg.add_input_text(tag=ui_input_tag, label=ui_label, width=300, user_data=op_selector, callback=on_edit, **dpg_default_value_kwarg)
+            else:
+                err_label = f"bruh typo in ur type {param.param_type}"
+                dpg.add_text(tag=ui_input_tag, label=err_label, width=300, **dpg_default_value_kwarg)
 
 
     @staticmethod
