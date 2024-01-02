@@ -1,4 +1,5 @@
 from __future__ import annotations
+from datetime import datetime
 import functools
 import json
 import pathlib
@@ -47,6 +48,30 @@ ParamSectionDpgAttrType = {
 #     optional /reslink{int}: Map<int, dpg.node_attribute>, Resident Update Link
 
 
+def prettydate(d: datetime) -> str:
+    # https://stackoverflow.com/a/5164027
+    delta = datetime.now() - d
+    s = delta.seconds
+    if delta.days > 7 or delta.days < 0:
+        return d.strftime('%d %b %y')
+    elif delta.days == 1:
+        return '1 day ago'
+    elif delta.days > 1:
+        return '{} days ago'.format(delta.days)
+    elif s <= 1:
+        return 'just now'
+    elif s < 60:
+        return '{} seconds ago'.format(s)
+    elif s < 120:
+        return '1 minute ago'
+    elif s < 3600:
+        return '{} minutes ago'.format(s/60)
+    elif s < 7200:
+        return '1 hour ago'
+    else:
+        return '{} hours ago'.format(s/3600)
+
+
 @functools.cache
 def make_node_theme_for_hue(hue: AppColor):
     with dpg.theme() as theme:
@@ -66,6 +91,10 @@ class WindowAinbGraph:
         print(f"Opening {ainb_location.fullfile}")
         self.ectx = ectx
         self.ainb = self.ectx.load_ainb(ainb_location)
+
+    @property
+    def history_entries_tag(self) -> DpgTag:
+        return f"{self.tag}/tabs/history/entries"
 
     @property
     def node_editor(self) -> DpgTag:
@@ -106,12 +135,25 @@ class WindowAinbGraph:
         dpg.delete_item(self.node_editor)
         self.editor.render_contents()
 
+    def rerender_history(self):
+        dpg.delete_item(self.history_entries_tag, children_only=True)
+        # history is stored+appended with time asc, but displayed with time desc
+        for edit_op in reversed(self.ectx.edit_histories.get(self.ainb.location.fullfile, [])):
+            with dpg.group(parent=self.history_entries_tag):
+                with dpg.group():
+                    selector = f"@ {edit_op.op_selector}" if edit_op.op_selector else ""
+                    dpg.add_text(f"{prettydate(edit_op.when)}: {edit_op.op_type} {selector}")
+                    dpg.add_text(str(edit_op.op_value))
+                    dpg.add_separator()
+
     def render_contents(self):
         def _tab_change(sender, data, app_data):
             entered_tab = dpg.get_item_alias(data)
             is_autodump = True  # dpg.get_value(f"{self.tag}/tabs/json/autodump")
             if entered_tab == f"{self.tag}/tabs/json" and is_autodump:
                 self.redump_json_textbox()
+            if entered_tab == f"{self.tag}/tabs/history" and is_autodump:
+                self.rerender_history()
 
         # from .db.ainb_file_param_name_usage_index import AinbFileParamNameUsageIndex
         # node_usages = AinbFileParamNameUsageIndex.get_node_types(db.Connection.get(), "AI")
@@ -134,6 +176,11 @@ class WindowAinbGraph:
                         #      dpg.add_input_text(default_value='$EDITOR "%s"', tag="jsdfl/opencmd")
                     dpg.add_input_text(tag=self.json_textbox, default_value="any slow dumps?", width=-1, height=-1, multiline=True, tab_input=True, readonly=False)
                     self.redump_json_textbox()
+
+            with dpg.tab(tag=f"{self.tag}/tabs/history", label="Edit History"):
+                with dpg.child_window(autosize_x=True, autosize_y=True):
+                    dpg.add_group(tag=self.history_entries_tag)
+                    self.rerender_history()
 
             save_ainb = lambda: self.ectx.save_ainb(self.ainb)
             dpg.add_tab_button(label="Save to modfs", callback=save_ainb)
@@ -425,9 +472,8 @@ class AinbGraphEditorRenderHelpers:
         op_selector = param.get_default_value_selector()
 
         def on_edit(sender, data, op_selector):
-            op_value = data  # TODO debounce/merge history entries while immediately acting on all
-            edit_op = AinbEditOperation(op_type=AinbEditOperationTypes.PARAM_UPDATE_DEFAULT, op_value=op_value, op_selector=op_selector)
             # XXX ideally plumb in ectx, or send this up through the editor?
+            edit_op = AinbEditOperation(op_type=AinbEditOperationTypes.PARAM_UPDATE_DEFAULT, op_value=data, op_selector=op_selector)
             EditContext.get().perform_new_edit_operation(node.editor.ainb, edit_op)
 
         node_attr_tag_ns = f"{node.tag}/Params/{param.param_section_name}/{param.name}"
