@@ -199,6 +199,75 @@ class AinbGraphEditor:
         # TODO clear contents?
         self.render_contents()
 
+    @property
+    def _add_node_tag(self) -> DpgTag:
+        return f"{self.tag}/AddNode/Window"
+
+    def begin_add_node(self, sender, _data, _app_data):
+        input_tag = f"{self._add_node_tag}/Input"
+        dpg.delete_item(self._add_node_tag)
+        with dpg.window(
+            tag=self._add_node_tag,
+            min_size=(1024, 768),
+            max_size=(1024, 768),
+            popup=True,  # XXX neither autosize nor no_resize seem to do anything here?
+            horizontal_scrollbar=True,  # TODO multiline with smaller font to show param sections?
+        ):
+            # Get usages to present to user
+            file_cat = self.ainb.json["Info"]["File Category"]
+            node_usages = db.AinbFileParamNameUsageIndex.get_node_types(db.Connection.get(), file_cat)
+
+            # Set up filtering
+            filter_ns = f"{self._add_node_tag}/Filter"
+            def set_filters(sender, filter_string, _app_data):
+                if len(filter_string) < 3:
+                    filter_string = ""
+                dpg.set_value(f"{filter_ns}/builtin", filter_string)
+                dpg.set_value(f"{filter_ns}/userdefined", filter_string)
+                dpg.set_value(f"{filter_ns}/module", filter_string)
+            dpg.add_input_text(tag=input_tag, hint="Node Type...", callback=set_filters)
+
+            # Output containers for filtered node types
+            dpg.add_separator()
+            dpg.add_text("Builtins (Element_)", color=AppStyleColors.LIST_ENTRY_SEPARATOR.to_rgba32())
+            dpg.add_separator()
+            dpg.add_filter_set(tag=f"{filter_ns}/builtin")
+
+            dpg.add_separator()
+            dpg.add_text(f"UserDefined (for {file_cat})", color=AppStyleColors.LIST_ENTRY_SEPARATOR.to_rgba32())
+            dpg.add_separator()
+            dpg.add_filter_set(tag=f"{filter_ns}/userdefined")
+
+            dpg.add_separator()
+            dpg.add_text(f"External AINB (.module for {file_cat})", color=AppStyleColors.LIST_ENTRY_SEPARATOR.to_rgba32())
+            dpg.add_separator()
+            dpg.add_filter_set(tag=f"{filter_ns}/module")
+
+            # Populate containers with all possible results
+            for (node_type, param_names_json) in node_usages:
+                type_color_kw = {}
+                if node_type.startswith("Element_"):  # builtins
+                    parent = f"{filter_ns}/builtin"
+                elif node_type.endswith(".module"):  # modules / external ainb
+                    parent = f"{filter_ns}/module"
+                    color = AppStyleColors.GRAPH_MODULE_HUE.set_hsv(s=0.2, v=1.0)
+                    type_color_kw["color"] = color.to_rgba32()
+                else:  # userdefined
+                    parent = f"{filter_ns}/userdefined"
+
+                with dpg.group(horizontal=True, parent=parent, filter_key=node_type, user_data=param_names_json):
+                    dpg.add_text(node_type, **type_color_kw)
+                    with dpg.group(horizontal=False):
+                        for section, typed_params in json.loads(param_names_json).items():
+                            with dpg.group(horizontal=True):
+                                dpg.add_text(f"{section}: ", color=AppStyleColors.NEW_NODE_PICKER_PARAM_DETAILS.to_rgba32())
+                                dpg.add_text(typed_params, color=AppStyleColors.NEW_NODE_PICKER_PARAM_DETAILS.to_rgba32())
+
+        dpg.focus_item(input_tag)  # XXX inconsistent bullshit, this just uhh stopped working again :(
+
+    def confirm_add_node(self):
+        pass
+
     def render_contents(self):
         # sludge for now
         def _link_callback(sender, app_data):
@@ -206,37 +275,12 @@ class AinbGraphEditor:
         def _delink_callback(sender, app_data):
             dpg.delete_item(app_data)
 
-        with dpg.group(horizontal=True, parent=self.parent):
-            dpg.add_button(label=f"Add Node")
-            # TODO manually managed popup we can close/destroy/etc
-            # TODO divvy up filters+separators like index window, so our ui sectioning works
-            # TODO actually insert the node
-            with dpg.popup(dpg.last_item(), mousebutton=dpg.mvMouseButton_Left, min_size=(1024, 768), max_size=(1024, 768)):
-                file_cat = self.ainb.json["Info"]["File Category"]
-                node_usages = db.AinbFileParamNameUsageIndex.get_node_types(db.Connection.get(), file_cat)
-
-                fset = dpg.generate_uuid()
-                finput = dpg.add_input_text(hint="Node Type...", callback=lambda s, a: dpg.set_value(fset, a))
-                with dpg.filter_set(tag=fset):
-                    prev_section = None
-                    for (node_type, param_names_json, section) in node_usages:
-                        if prev_section and section != prev_section:
-                            # Separator between builtins, userdefined, external ainb
-                            dpg.add_separator()
-                        prev_section = section
-
-                        with dpg.group(horizontal=True, filter_key=node_type, user_data=param_names_json):
-                            dpg.add_text(node_type)
-                            dpg.add_text(param_names_json)
-
-                dpg.focus_item(finput)
-
-
         # TODO top bar, might replace tabs?
         # - "jump to" node list dropdown
-        # - add node button with searchable popup for node type
-        # - save to modfs button, dirty indicator
+        # - dirty indicators
         # - "{}" json button?
+        with dpg.group(horizontal=True, parent=self.parent):
+            dpg.add_button(label=f"Add Node", callback=self.begin_add_node)
 
         # Main graph ui + rendering nodes
         dpg.add_node_editor(

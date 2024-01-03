@@ -111,4 +111,7 @@ AppStyleColors = ConstDottableDict({
     "GRAPH_GLOBALS_HUE": AppColor.from_rgb24([0, 255, 0]),
     "GRAPH_MODULE_HUE": AppColor.from_rgb24([255, 160, 0]),
     "LIST_ENTRY_SEPARATOR": AppColor.from_hsv([0, 0, 0.5]),
+
+    # blue tint needed for contrast against orange node_types, desaturating this makes them blur together too much
+    "NEW_NODE_PICKER_PARAM_DETAILS": AppColor.from_hsv([0.5, 0.1, 0.66]),
 })

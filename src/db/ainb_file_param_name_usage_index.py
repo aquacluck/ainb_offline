@@ -48,12 +48,11 @@ class AinbFileParamNameUsageIndex:
 
     @classmethod
     def get_node_types(cls, conn: sqlite3.Connection, file_category: str) -> List[Tuple[str, str]]:
-        # elements, then normal udts, then ainb module calls
-        return [(r[0], r[1], r[2]) for r in conn.execute(f"""
-            SELECT node_type, param_names_json, ((node_type LIKE 'Element_%') * 2 + (node_type NOT LIKE '%.module')) AS sort_section
+        return [(r[0], r[1]) for r in conn.execute(f"""
+            SELECT node_type, param_names_json
             FROM {cls.TABLE}
             WHERE file_category = ?
             AND is_most_common = 1
             GROUP BY file_category, node_type
-            ORDER BY sort_section DESC, node_type ASC;
+            ORDER BY node_type ASC;
             """, (file_category,)).fetchall()]
