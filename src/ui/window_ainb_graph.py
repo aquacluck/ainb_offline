@@ -73,7 +73,7 @@ def prettydate(d: datetime) -> str:
 
 
 @functools.cache
-def make_node_theme_for_hue(hue: AppColor):
+def make_node_theme_for_hue(hue: AppColor) -> DpgTag:
     with dpg.theme() as theme:
         with dpg.theme_component(dpg.mvNode):
             dpg.add_theme_color(dpg.mvNodeCol_TitleBar, hue.set_hsv(s=0.5, v=0.4).to_rgb24(), category=dpg.mvThemeCat_Nodes)
@@ -133,6 +133,7 @@ class WindowAinbGraph:
 
         # Re-render editor TODO this belongs in AinbGraphEditor?
         dpg.delete_item(self.node_editor)
+        dpg.delete_item(f"{self.node_editor}/toolbar")
         self.editor.render_contents()
 
     def rerender_history(self):
@@ -147,7 +148,7 @@ class WindowAinbGraph:
                     dpg.add_separator()
 
     def render_contents(self):
-        def _tab_change(sender, data, app_data):
+        def _tab_change(sender, data, user_data):
             entered_tab = dpg.get_item_alias(data)
             is_autodump = True  # dpg.get_value(f"{self.tag}/tabs/json/autodump")
             if entered_tab == f"{self.tag}/tabs/json" and is_autodump:
@@ -203,7 +204,7 @@ class AinbGraphEditor:
     def _add_node_tag(self) -> DpgTag:
         return f"{self.tag}/AddNode/Window"
 
-    def begin_add_node(self, sender, _data, _app_data):
+    def begin_add_node(self, sender, _data, _user_data):
         input_tag = f"{self._add_node_tag}/Input"
         dpg.delete_item(self._add_node_tag)
         with dpg.window(
@@ -211,15 +212,14 @@ class AinbGraphEditor:
             min_size=(1024, 768),
             max_size=(1024, 768),
             popup=True,  # XXX neither autosize nor no_resize seem to do anything here?
-            horizontal_scrollbar=True,  # TODO multiline with smaller font to show param sections?
         ):
             # Get usages to present to user
             file_cat = self.ainb.json["Info"]["File Category"]
-            node_usages = db.AinbFileParamNameUsageIndex.get_node_types(db.Connection.get(), file_cat)
+            node_usages = db.AinbFileNodeUsageIndex.get_node_types(db.Connection.get(), file_cat)
 
             # Set up filtering
             filter_ns = f"{self._add_node_tag}/Filter"
-            def set_filters(sender, filter_string, _app_data):
+            def set_filters(sender, filter_string, _user_data):
                 if len(filter_string) < 3:
                     filter_string = ""
                 dpg.set_value(f"{filter_ns}/builtin", filter_string)
@@ -228,45 +228,80 @@ class AinbGraphEditor:
             dpg.add_input_text(tag=input_tag, hint="Node Type...", callback=set_filters)
 
             # Output containers for filtered node types
-            dpg.add_separator()
-            dpg.add_text("Builtins (Element_)", color=AppStyleColors.LIST_ENTRY_SEPARATOR.to_rgba32())
-            dpg.add_separator()
-            dpg.add_filter_set(tag=f"{filter_ns}/builtin")
+            with dpg.child_window(horizontal_scrollbar=True):
+                dpg.add_separator()
+                dpg.add_text("Builtins (Element_)", color=AppStyleColors.LIST_ENTRY_SEPARATOR.to_rgb24())
+                dpg.add_separator()
+                dpg.add_filter_set(tag=f"{filter_ns}/builtin")
 
-            dpg.add_separator()
-            dpg.add_text(f"UserDefined (for {file_cat})", color=AppStyleColors.LIST_ENTRY_SEPARATOR.to_rgba32())
-            dpg.add_separator()
-            dpg.add_filter_set(tag=f"{filter_ns}/userdefined")
+                dpg.add_separator()
+                dpg.add_text(f"UserDefined (for {file_cat})", color=AppStyleColors.LIST_ENTRY_SEPARATOR.to_rgb24())
+                dpg.add_separator()
+                dpg.add_filter_set(tag=f"{filter_ns}/userdefined")
 
-            dpg.add_separator()
-            dpg.add_text(f"External AINB (.module for {file_cat})", color=AppStyleColors.LIST_ENTRY_SEPARATOR.to_rgba32())
-            dpg.add_separator()
-            dpg.add_filter_set(tag=f"{filter_ns}/module")
+                dpg.add_separator()
+                dpg.add_text(f"External AINB (.module for {file_cat})", color=AppStyleColors.LIST_ENTRY_SEPARATOR.to_rgb24())
+                dpg.add_separator()
+                dpg.add_filter_set(tag=f"{filter_ns}/module")
+
+            def on_submit_node(sender, data, user_data):
+                dpg.delete_item(self._add_node_tag)
+                (node_type, param_details_json) = user_data
+
+                # XXX how much of this even belongs in here?
+                flags_kw = {}
+                if node_type.endswith(".module"):
+                    flags_kw["Flags"] = ["Is External AINB"]
+
+                # Skeleton node json
+                data = {
+                    "Node Type": node_type if node_type.startswith("Element_") else "UserDefined",
+                    "Node Index": None,  # Assigned at AinbEditOperation runtime
+                    **flags_kw,  # "Flags": ["Is Precondition Node"]
+                    "Name": "" if node_type.startswith("Element_") else node_type,
+                    "Base Precondition Node": 0,  # Required?
+                    "GUID": None,
+                    # "Precondition Nodes": [2],
+                    **param_details_json,
+                    # "Linked Nodes": {},
+                }
+                # XXX ideally plumb in ectx, or send this up through the editor?
+                edit_op = AinbEditOperation(op_type=AinbEditOperationTypes.ADD_NODE, op_value=data)
+                EditContext.get().perform_new_edit_operation(self.ainb, edit_op)
+
+                # Re-render editor TODO this belongs in AinbGraphEditor?
+                dpg.delete_item(self.tag)
+                dpg.delete_item(f"{self.tag}/toolbar")
+                self.render_contents()
 
             # Populate containers with all possible results
-            for (node_type, param_names_json) in node_usages:
-                type_color_kw = {}
+            for (node_type, param_details_json) in node_usages:
                 if node_type.startswith("Element_"):  # builtins
                     parent = f"{filter_ns}/builtin"
                 elif node_type.endswith(".module"):  # modules / external ainb
                     parent = f"{filter_ns}/module"
-                    color = AppStyleColors.GRAPH_MODULE_HUE.set_hsv(s=0.2, v=1.0)
-                    type_color_kw["color"] = color.to_rgba32()
                 else:  # userdefined
                     parent = f"{filter_ns}/userdefined"
 
-                with dpg.group(horizontal=True, parent=parent, filter_key=node_type, user_data=param_names_json):
-                    dpg.add_text(node_type, **type_color_kw)
+                with dpg.group(horizontal=True, parent=parent, filter_key=node_type):
+                    # color = AppStyleColors.GRAPH_MODULE_HUE.set_hsv(s=0.2, v=1.0)
+                    # type_color_kw["color"] = color.to_rgb24()
+                    # dpg.add_text(node_type, **type_color_kw)
+                    dpg.add_button(label=node_type, user_data=(node_type, param_details_json), callback=on_submit_node)
+
                     with dpg.group(horizontal=False):
-                        for section, typed_params in json.loads(param_names_json).items():
-                            with dpg.group(horizontal=True):
-                                dpg.add_text(f"{section}: ", color=AppStyleColors.NEW_NODE_PICKER_PARAM_DETAILS.to_rgba32())
-                                dpg.add_text(typed_params, color=AppStyleColors.NEW_NODE_PICKER_PARAM_DETAILS.to_rgba32())
+                        if False: #comment := "hola pendejo":
+                            dpg.add_text(f"// {comment}", color=AppStyleColors.INLINE_COMMENT_TEXT.to_rgb24())
+                        else:
+                            dpg.add_text("")
+                        for section, typed_params in param_details_json.items():
+                            param_names = ", ".join([
+                                f"{param_type}: [{', '.join([p['Name'] for p in param_list])}]"
+                                for (param_type, param_list) in typed_params.items()
+                            ])
+                            dpg.add_text(f"{ParamSectionLegend[section]} {param_names}", color=AppStyleColors.NEW_NODE_PICKER_PARAM_DETAILS.to_rgb24())
 
         dpg.focus_item(input_tag)  # XXX inconsistent bullshit, this just uhh stopped working again :(
-
-    def confirm_add_node(self):
-        pass
 
     def render_contents(self):
         # sludge for now
@@ -279,7 +314,7 @@ class AinbGraphEditor:
         # - "jump to" node list dropdown
         # - dirty indicators
         # - "{}" json button?
-        with dpg.group(horizontal=True, parent=self.parent):
+        with dpg.group(tag=f"{self.tag}/toolbar", horizontal=True, parent=self.parent):
             dpg.add_button(label=f"Add Node", callback=self.begin_add_node)
 
         # Main graph ui + rendering nodes

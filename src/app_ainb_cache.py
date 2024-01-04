@@ -8,7 +8,7 @@ from typing import *
 import dearpygui.dearpygui as dpg
 
 from .app_types import *
-from .db import Connection, AinbFileNodeUsageIndex, AinbFileParamNameUsageIndex, PackIndex
+from .db import Connection, AinbFileNodeUsageIndex, PackIndex
 from .dt_ainb.ainb import AINB
 from . import pack_util
 
@@ -105,7 +105,8 @@ def build_ainb_index_for_unknown_files() -> None:
         print("")  # \n
 
         if entry_hit < entry_total:
-            AinbFileParamNameUsageIndex.postprocess(conn)
+            print(f"Ranking param usage... (please wait a long time)", flush=True)
+            AinbFileNodeUsageIndex.postprocess(conn)
             print(f"Caching {entry_total-entry_hit} new entries", flush=True)
 
     print(f"Cache hits {entry_hit}/{entry_total}\n", flush=True)
@@ -150,16 +151,5 @@ def inspect_ainb_pack(conn: sqlite3.Connection, rootfs: str, packfile: str, pack
                 param_details[ParamSectionName.OUTPUT] = x
 
             # aj_node.get("Linked Nodes", {})
-            # AinbNodeParamShapeIndex.persist_shape(conn, node_type, param_details)
-
-            # Clone, then overwrite to keep Name field only
-            param_names = json.loads(json.dumps(param_details))
-            for section, params in param_names.items():
-                for param_type, param_list in params.items():
-                    for i, param in enumerate(param_list):
-                        param_list[i] = param.get("Name", "")
-
-            # Index every node call's source, node, params
-            # not actually using this yet #AinbFileNodeUsageIndex.persist(conn, fullfile, file_category, node_type, node_i, param_details)
-            AinbFileParamNameUsageIndex.persist(conn, file_category, node_type, param_names)
+            AinbFileNodeUsageIndex.persist(conn, file_category, node_type, param_details)
 

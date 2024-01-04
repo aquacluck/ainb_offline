@@ -80,6 +80,7 @@ class EditContext:
         if ainb_location.packfile == "Root":
             modfs_ainbfile = pathlib.Path(f"{self.modfs}/{ainb_location.internalfile}")
             modfs_ainbfile.parent.mkdir(parents=True, exist_ok=True)
+            # FIXME output to a BytesIO so we don't clobber the file on failure
             with open(modfs_ainbfile, "wb") as outfile:
                 updated_ainb.ToBytes(updated_ainb, outfile)
             print(f"Saved {ainb_location.fullfile}")

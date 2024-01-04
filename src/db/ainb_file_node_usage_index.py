@@ -1,46 +1,57 @@
-from collections import OrderedDict
 import json
 import sqlite3
 from typing import *
+
+# Element_Expression is not used in Logic
 
 
 class AinbFileNodeUsageIndex:
     TABLE = "ainb_file_node_usage_index"
 
     @classmethod
-    def emit_create(cls) -> str:
+    def emit_create(cls) -> List[str]:
         return [f"""
             CREATE TABLE IF NOT EXISTS {cls.TABLE}(
-                fullfile TEXT,
                 file_category TEXT,
                 node_type TEXT,
-                node_index INT,
                 param_details_json TEXT,
-                PRIMARY KEY(fullfile ASC, node_index ASC)
+                detailset_usage_count INT,
+                is_most_common INT,
+                PRIMARY KEY(file_category ASC, node_type ASC, param_details_json ASC)
             ) WITHOUT ROWID;""",
-            f"""CREATE INDEX IF NOT EXISTS idx_afnui_lookup1 ON {cls.TABLE} (file_category, node_type, param_details_json);""",
+            f"""CREATE INDEX IF NOT EXISTS idx_afnui_lookup1 ON {cls.TABLE} (file_category, node_type, is_most_common);""",
         ]
 
-
     @classmethod
-    def get_common_param_details(cls, conn: sqlite3.Connection, file_category: str, node_type: str) -> List[Tuple[dict, int]]:
-        cursor = conn.execute(f"""
-            SELECT param_details_json, COUNT(*) AS n
-            FROM {cls.TABLE}
-            WHERE node_type = ?
-            AND file_category = ?
-            GROUP BY param_details_json
-            ORDER BY n DESC LIMIT 5;
-            """, (node_type, file_category))
-
-        return [(json.loads(row[0]), row[1]) for row in cursor.fetchall()]
-
-
-    @classmethod
-    def persist(cls, conn: sqlite3.Connection, fullfile: str, file_category: str, node_type: str, node_index: int, param_details_json: dict):
+    def persist(cls, conn: sqlite3.Connection, file_category: str, node_type: str, param_details_json: dict) -> None:
+        # Count which full param data are most often used (to call this node type, in this ainb file category)
         conn.execute(f"""
-            INSERT OR REPLACE INTO {cls.TABLE}
-            (fullfile, file_category, node_type, node_index, param_details_json)
-            VALUES (?, ?, ?, ?, ?, json(?));
-            """, (fullfile, file_category, node_type, node_index, json.dumps(param_details_json)))
+            INSERT INTO {cls.TABLE}
+            (file_category, node_type, param_details_json, detailset_usage_count, is_most_common)
+            VALUES (?, ?, json(?), 1, 0)
+            ON CONFLICT DO UPDATE SET detailset_usage_count = detailset_usage_count + 1
+            """, (file_category, node_type, json.dumps(param_details_json)))
 
+    @classmethod
+    def postprocess(cls, conn: sqlite3.Connection) -> None:
+        # After all rows are persisted, mark the most common
+        conn.execute(f"""
+            UPDATE {cls.TABLE} AS t1
+            SET is_most_common = 1
+            WHERE t1.detailset_usage_count = (
+                SELECT MAX(detailset_usage_count)
+                FROM {cls.TABLE} AS t2
+                WHERE t2.file_category = t1.file_category
+                AND t2.node_type = t1.node_type
+            );""")
+
+    @classmethod
+    def get_node_types(cls, conn: sqlite3.Connection, file_category: str) -> List[Tuple[str, dict]]:
+        return [(r[0], json.loads(r[1])) for r in conn.execute(f"""
+            SELECT node_type, param_details_json
+            FROM {cls.TABLE}
+            WHERE file_category = ?
+            AND is_most_common = 1
+            GROUP BY file_category, node_type
+            ORDER BY node_type ASC;
+            """, (file_category,)).fetchall()]
