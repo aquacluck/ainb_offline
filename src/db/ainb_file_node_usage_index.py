@@ -1,8 +1,10 @@
-import json
 import sqlite3
 from typing import *
 
+import orjson
+
 # Element_Expression is not used in Logic
+# Element_Expression is the only node type with multiple signatures (userdefined param class sig uniqueness tbd)
 
 
 class AinbFileNodeUsageIndex:
@@ -30,7 +32,7 @@ class AinbFileNodeUsageIndex:
             (file_category, node_type, param_details_json, detailset_usage_count, is_most_common)
             VALUES (?, ?, json(?), 1, 0)
             ON CONFLICT DO UPDATE SET detailset_usage_count = detailset_usage_count + 1
-            """, (file_category, node_type, json.dumps(param_details_json)))
+            """, (file_category, node_type, orjson.dumps(param_details_json)))
 
     @classmethod
     def postprocess(cls, conn: sqlite3.Connection) -> None:
@@ -47,7 +49,7 @@ class AinbFileNodeUsageIndex:
 
     @classmethod
     def get_node_types(cls, conn: sqlite3.Connection, file_category: str) -> List[Tuple[str, dict]]:
-        return [(r[0], json.loads(r[1])) for r in conn.execute(f"""
+        return [(r[0], orjson.loads(r[1])) for r in conn.execute(f"""
             SELECT node_type, param_details_json
             FROM {cls.TABLE}
             WHERE file_category = ?

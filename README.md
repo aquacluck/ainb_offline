@@ -11,7 +11,7 @@ pip install dearpygui mmh3 pyyaml byml sarc zstandard
 python ainb_offline.py
 
 # Or specify paths, eg write to emulator mod path
-pip install dearpygui mmh3 pyyaml byml sarc zstandard
+pip install dearpygui mmh3 pyyaml byml sarc zstandard orjson
 ROMFS=~/totk100/romfs APPVAR=~/totk100/appcache OUTPUT_MODFS=~/appdata/Ryujinx/sdcard/atmosphere/contents/0100f2c0115b6000/romfs python ainb_offline.py
 
 # Open given ainb, including any changes from modfs

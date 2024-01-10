@@ -1,12 +1,12 @@
 from __future__ import annotations
 from datetime import datetime
 import functools
-import json
 import pathlib
 from typing import *
 from collections import defaultdict
 
 import dearpygui.dearpygui as dpg
+import orjson
 
 from ..app_ainb_cache import scoped_pack_lookup
 from ..edit_context import EditContext
@@ -121,7 +121,13 @@ class WindowAinbGraph:
 
     def redump_json_textbox(self):
         # Replace json textbox with working ainb (possibly dirty)
-        ainb_json_str = json.dumps(self.ainb.json, indent=4)
+        ainb_json_str = orjson.dumps(self.ainb.json, option=orjson.OPT_INDENT_2)
+        # yep. this lib only supports 2 spaces, but fast + keeps unicode strings unescaped
+        if True: # if dpg.get_value(AppConfigKeys.INDENT_4):
+            ainb_json_str = '\n'.join([
+                ' '*(((len(line) - len(line.lstrip(' '))) // 2) * 4) + line.lstrip(' ')
+                for line in ainb_json_str.decode("utf8").split('\n')
+            ])
         dpg.set_value(self.json_textbox, ainb_json_str)
 
     def rerender_graph_from_json(self):

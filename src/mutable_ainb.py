@@ -1,10 +1,10 @@
 from __future__ import annotations
 from datetime import datetime, timedelta
-import json
 from typing import *
 import uuid
 
 import dearpygui.dearpygui as dpg
+import orjson
 
 from .app_types import *
 from .dt_ainb.ainb import AINB
@@ -145,7 +145,7 @@ class AinbEditOperationExecutor:
         @staticmethod
         def execute(ainb: MutableAinb, edit_op: AinbEditOperation):
             # Duplicate so the caller can't mutate it
-            node_json = json.loads(json.dumps(edit_op.op_value))
+            node_json = orjson.loads(orjson.dumps(edit_op.op_value))
 
             assert node_json.get("Node Type")
 
@@ -169,7 +169,7 @@ class AinbEditOperationExecutor:
         @staticmethod
         def execute(ainb: MutableAinb, edit_op: AinbEditOperation):
             ainb.json.clear()
-            ainb.json.update(json.loads(edit_op.op_value))
+            ainb.json.update(orjson.loads(edit_op.op_value))
             print(f"Overwrote working ainb @ {ainb.location.fullfile}")
 
     class PARAM_UPDATE_DEFAULT(OP_IMPL):

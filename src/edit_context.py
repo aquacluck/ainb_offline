@@ -1,7 +1,6 @@
 import pathlib
 import dearpygui.dearpygui as dpg
 import io
-import json
 import os
 import shutil
 
