@@ -435,19 +435,20 @@ class AinbGraphEditorNode:
         return self.node.json
 
     @property
+    def node_type(self) -> str:
+        node_type = self.node_json["Node Type"]
+        if node_type == "UserDefined":
+            return self.node_json["Name"]
+        return node_type
+
+    @property
     def tag(self) -> DpgTag:
         # TODO AinbGraphEditor.get_node_json(i) instead?
         return f"{self.editor.tag}/node{self.node_i}"
 
     def render(self) -> List[DeferredNodeLinkCall]:
         output_attr_links: List[DeferredNodeLinkCall] = []
-
-        node_type = self.node_json["Node Type"]
-        node_name = self.node_json["Name"]
-        if node_type == "UserDefined":
-            label = f"{node_name} ({self.node_i})"
-        else:
-            label = f"{node_type} ({self.node_i})"
+        label = f"{self.node_type} ({self.node_i})"
 
         rh = AinbGraphEditorRenderHelpers
         with dpg.node(tag=f"{self.tag}/Node", label=label, parent=self.editor.tag):
@@ -673,11 +674,15 @@ class AinbGraphEditorRenderHelpers:
                     local_i_of_type = _i_of_type
                     local_param_node_index = local_param["Node Index"]
 
-                    if local_param_node_index in [-100, -110]:
+                    if local_param_node_index <= -100:
                         # Always multibool?
-                        len_of_nodeparams = local_param["Parameter Index"]  # unused?
+                        # local_param["Parameter Index"] # Always 2?
                         list_of_nodeparams = local_param["Sources"]
                         for multi_item in list_of_nodeparams:
+                            if multi_item.get("Function"):
+                                # FIXME traverse links to figure out the datatype (needed to use Parameter Index)?
+                                print(f"ignoring exb source in {node.node_type} {node.node_i}")
+                                continue
                             multi_i = multi_item["Node Index"]
                             multi_item_param_name = node.editor.ainb.json["Nodes"][multi_i]["Output Parameters"][local_type][multi_item["Parameter Index"]]["Name"]
                             remote_multi_attr_tag = f"{node.editor.tag}/node{multi_i}/Params/Output Parameters/{multi_item_param_name}"
@@ -784,6 +789,8 @@ class AinbGraphEditorRenderHelpers:
                 labels.append(cname)
             if cond := aj_link.get("Condition"):
                 labels.append(f"Condition: {cond}")
+            if note := aj_link.get("その他"):  # "Others"?
+                labels.append(note)  # Contains "Default"?
             label = ", ".join(labels) or f"[{aj_link_type}]"
             dpg.add_text(label)
 
