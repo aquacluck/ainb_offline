@@ -249,6 +249,7 @@ class AinbGraphEditor:
                 (node_type, param_details_json) = user_data
 
                 # XXX how much of this even belongs in here?
+                # FIXME add ainb-level header for this module
                 flags_kw = {}
                 if node_type.endswith(".module"):
                     flags_kw["Flags"] = ["Is External AINB"]
@@ -460,7 +461,6 @@ class AinbGraphEditorNode:
 
             for aj_link_type, aj_links in self.node_json.get("Linked Nodes", {}).items():
                 for i_of_link_type, aj_link in enumerate(aj_links):
-                    #print(aj_link_type, aj_link)
                     if aj_link_type == "Output/bool Input/float Input Link": # 0
                         output_attr_links += rh.link_bidirectional_lookup(self, aj_link, i_of_link_type)
                     elif aj_link_type == "Standard Link": # 2
@@ -468,9 +468,9 @@ class AinbGraphEditorNode:
                     elif aj_link_type == "Resident Update Link": # 3
                         output_attr_links += rh.link_resident_update(self, aj_link, i_of_link_type)
                     elif aj_link_type == "String Input Link": # 4
-                        pass # output_attr_links += process_ainb_node_link__string_input_link(self, aj_link, i_of_link_type)
-                    elif aj_link_type == "int Input Link": # 5 the opposite direction of type 0? TODO learn things
-                        pass # output_attr_links += process_ainb_node_link__int_input_link(self, aj_link, i_of_link_type)
+                        output_attr_links += rh.link_string_input(self, aj_link, i_of_link_type)
+                    elif aj_link_type == "int Input Link": # 5
+                        output_attr_links += rh.link_int_input(self, aj_link, i_of_link_type)
                     else:
                         print(f"Unsupported link type {aj_link_type}")
                         breakpoint()
@@ -799,7 +799,6 @@ class AinbGraphEditorRenderHelpers:
 
     @staticmethod
     def link_resident_update(node: AinbGraphEditorNode, aj_link: Dict, i_of_link_type: int) -> List[DeferredNodeLinkCall]:
-        aj_link_type = "Resident Update Link"
         output_attr_links = []
 
         # pointers to params owned by other nodes? idk
@@ -832,6 +831,84 @@ class AinbGraphEditorRenderHelpers:
             dst_attr=dst_attr_tag,
             src_node_i=node.node_i,
             dst_node_i=dst_i,
+            parent=node.editor.tag
+        ))
+        return output_attr_links
+
+
+    @staticmethod
+    def link_string_input(node: AinbGraphEditorNode, aj_link: Dict, i_of_link_type: int) -> List[DeferredNodeLinkCall]:
+        output_attr_links = []
+
+        # The link info exists on the destination `node`, so the source is "remote"
+        remote_src_node_i: int = aj_link["Node Index"]
+        dst_param_name: str = aj_link["Parameter"]
+        dst_attr_tag: DpgTag = f"{node.tag}/Params/Input Parameters/{dst_param_name}"
+
+        # We need to find the remote node's param index, to get that remote param's name, used to visually link.
+        # This param index is stored on the local param. The link info itself only locates the local/destination name and remote/source *node index*.
+        remote_param_i: int = None
+        for local_param in node.node_json[ParamSectionName.INPUT]["string"]:
+            # idk why we have both of these, but may as well check both
+            if local_param["Name"] != dst_param_name:
+                continue
+            if local_param["Node Index"] != remote_src_node_i:
+                continue
+
+            remote_param_i = local_param["Parameter Index"]
+            break
+
+        if remote_param_i is None:
+            print(f"No remote param found for {dst_attr_tag} in {aj_link}")
+
+        remote_node_json = node.editor.ainb.json["Nodes"][remote_src_node_i]
+        remote_src_param_name = remote_node_json[ParamSectionName.OUTPUT]["string"][remote_param_i]["Name"]
+
+        src_attr_tag: DpgTag = f"{node.editor.tag}/node{remote_src_node_i}/Params/Output Parameters/{remote_src_param_name}"
+        output_attr_links.append(DeferredNodeLinkCall(
+            src_attr=src_attr_tag,
+            dst_attr=dst_attr_tag,
+            src_node_i=remote_src_node_i,
+            dst_node_i=node.node_i,
+            parent=node.editor.tag
+        ))
+        return output_attr_links
+
+
+    @staticmethod
+    def link_int_input(node: AinbGraphEditorNode, aj_link: Dict, i_of_link_type: int) -> List[DeferredNodeLinkCall]:
+        output_attr_links = []
+
+        # The link info exists on the destination `node`, so the source is "remote"
+        remote_src_node_i: int = aj_link["Node Index"]
+        dst_param_name: str = aj_link["Parameter"]
+        dst_attr_tag: DpgTag = f"{node.tag}/Params/Input Parameters/{dst_param_name}"
+
+        # We need to find the remote node's param index, to get that remote param's name, used to visually link.
+        # This param index is stored on the local param. The link info itself only locates the local/destination name and remote/source *node index*.
+        remote_param_i: int = None
+        for local_param in node.node_json[ParamSectionName.INPUT]["int"]:
+            # idk why we have both of these, but may as well check both
+            if local_param["Name"] != dst_param_name:
+                continue
+            if local_param["Node Index"] != remote_src_node_i:
+                continue
+
+            remote_param_i = local_param["Parameter Index"]
+            break
+
+        if remote_param_i is None:
+            print(f"No remote param found for {dst_attr_tag} in {aj_link}")
+
+        remote_node_json = node.editor.ainb.json["Nodes"][remote_src_node_i]
+        remote_src_param_name = remote_node_json[ParamSectionName.OUTPUT]["int"][remote_param_i]["Name"]
+
+        src_attr_tag: DpgTag = f"{node.editor.tag}/node{remote_src_node_i}/Params/Output Parameters/{remote_src_param_name}"
+        output_attr_links.append(DeferredNodeLinkCall(
+            src_attr=src_attr_tag,
+            dst_attr=dst_attr_tag,
+            src_node_i=remote_src_node_i,
+            dst_node_i=node.node_i,
             parent=node.editor.tag
         ))
         return output_attr_links
