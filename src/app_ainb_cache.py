@@ -8,7 +8,7 @@ import dearpygui.dearpygui as dpg
 
 from .app_types import *
 from .db import Connection, AinbFileNodeUsageIndex, PackIndex
-from .dt_ainb.ainb import AINB
+from .dt_tools.ainb import AINB
 from . import pack_util
 
 

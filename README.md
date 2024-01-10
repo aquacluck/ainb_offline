@@ -52,4 +52,5 @@ Problems? Please report *exactly* what you've attempted:
 
 Top dawgs
 - Special thanks to dt12345 for their ainb parser+serializer: https://github.com/dt-12345/ainb
-- Special thanks to Watertoon for their help reversing the format
+- Special thanks to dt12345 for their asb parser+serializer: https://github.com/dt-12345/asb
+- Special thanks to Watertoon for their help reversing ainb

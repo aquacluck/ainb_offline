@@ -117,15 +117,29 @@ class EXB:
                 instruction_index += len(command["Instructions"])
                 del command["Instruction Count"] # Remove unnecessary fields from JSON
         else:
-            self.commands = list(dict(sorted(functions.items())).values())
+            self.commands = functions["Commands"]
             self.instructions = []
             for entry in self.commands:
                 for key in entry:
                     if key == "Instructions":
                         for instruction in entry[key]:
                             self.instructions.append(instruction)
+            self.magic = functions["Info"]["Magic"]
+            self.version = functions["Info"]["Version"]
+            self.static_size = functions["Info"]["Static Memory Size"]
+            self.field_entry_count = functions["Info"]["Instance Count"]
+            self.scratch_32_size = functions["Info"]["Scratch32 Size"]
+            self.scratch_64_size = functions["Info"]["Scratch64 Size"]
 
         self.exb_section = {
+            "Info" : {
+                "Magic" : self.magic,
+                "Version" : self.version,
+                "Static Memory Size" : self.static_size,
+                "Instance Count" : self.field_entry_count,
+                "Scratch32 Size" : self.scratch_32_size,
+                "Scratch64 Size" : self.scratch_64_size
+            },
             "Commands" : self.commands
         }
 

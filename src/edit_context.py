@@ -6,7 +6,7 @@ import shutil
 
 from .app_types import *
 from .mutable_ainb import MutableAinb, AinbEditOperationExecutor
-from .dt_ainb.ainb import AINB
+from .dt_tools.ainb import AINB
 # XXX deferred from .ui.window_ainb_graph import WindowAinbGraph
 from . import pack_util
 

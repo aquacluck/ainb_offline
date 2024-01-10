@@ -7,11 +7,11 @@ import dearpygui.dearpygui as dpg
 import orjson
 
 from .app_types import *
-from .dt_ainb.ainb import AINB
+from .dt_tools.ainb import AINB
 
 
 # Core concepts:
-# - dt_ainb.AINB.output_dict is our canonical format, no matter the cost.
+# - dt_tools.ainb.AINB.output_dict is our canonical format, no matter the cost.
 #   This keeps manual edits, debugging, interop, etc accessible to almost anyone.
 # - Mutable types are passed by reference and as long as all mutations are
 #   performed in-place, this means we can anchor our objects to specific spots
