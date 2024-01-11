@@ -117,19 +117,21 @@ class EXB:
                 instruction_index += len(command["Instructions"])
                 del command["Instruction Count"] # Remove unnecessary fields from JSON
         else:
-            self.commands = functions["Commands"]
+            self.commands = functions.get("Commands", [])
             self.instructions = []
             for entry in self.commands:
                 for key in entry:
                     if key == "Instructions":
                         for instruction in entry[key]:
                             self.instructions.append(instruction)
-            self.magic = functions["Info"]["Magic"]
-            self.version = functions["Info"]["Version"]
-            self.static_size = functions["Info"]["Static Memory Size"]
-            self.field_entry_count = functions["Info"]["Instance Count"]
-            self.scratch_32_size = functions["Info"]["Scratch32 Size"]
-            self.scratch_64_size = functions["Info"]["Scratch64 Size"]
+            # FIXME Pack/AI.Global.Product.100.pack.zs:AI/AISchedule.action.ReflectFlyMove.module.ainb still bad, my version corrupts the file
+            info = functions.get("Info", {})
+            self.magic = info.get("Magic")
+            self.version = info.get("Version")
+            self.static_size = info.get("Static Memory Size")
+            self.field_entry_count = info.get("Instance Count")
+            self.scratch_32_size = info.get("Scratch32 Size")
+            self.scratch_64_size = info.get("Scratch64 Size")
 
         self.exb_section = {
             "Info" : {

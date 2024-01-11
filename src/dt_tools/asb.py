@@ -50,6 +50,8 @@ class ASB:
             else:
                 with open(data, 'rb') as f:
                     data = f.read()
+        if type(data) == dict:
+            from_json = True
         if not from_json:
             self.output_dict = {}
             self.max_blackboard_index = 0
@@ -209,9 +211,9 @@ class ASB:
                 self.x2c_section.append(self.X2C())
 
             self.stream.seek(self.node_start)
-            self.nodes = {}
+            self.nodes = []
             for i in range(self.node_count):
-                self.nodes[i] = self.Node()
+                self.nodes.append(self.Node(i))
             self.output_dict["Nodes"] = self.nodes
         else:
             self.output_dict = data
@@ -240,7 +242,7 @@ class ASB:
                 self.x68_section = []
             self.enum_resolve = {} # not doing this bc I don't feel like it
             self.x2c_section = []
-            for index in self.nodes:
+            for index in range(len(self.nodes)):
                 for entry in self.nodes[index]["0x40 Entries"]:
                     self.x40_section.append(entry)
                 for entry in self.nodes[index]["0x38 Entries"]:
@@ -659,8 +661,9 @@ class ASB:
             entry["Entries"].append(slot)
         return entry
     
-    def Node(self):
+    def Node(self, index: int):
         node = {}
+        node["Node Index"] = index
         node["Node Type"] = NodeType(self.stream.read_u16()).name
         x3c_count = self.stream.read_u8()
         node["Unknown"] = self.stream.read_u8()
@@ -1701,539 +1704,542 @@ class ASB:
         if output_dir:
             os.makedirs(output_dir, exist_ok=True)
         with open(os.path.join(output_dir, self.filename + ".asb"), 'wb') as f:
-            buffer = WriteStream(f)
-            buffer.write("ASB ".encode())
-            buffer.write(u32(self.version))
-            buffer.add_string(self.filename)
-            buffer.write(u32(buffer._string_refs[self.filename]))
-            buffer.write(u32(len(self.commands)))
-            buffer.write(u32(len(self.nodes)))
-            buffer.write(u32(len(self.events)))
-            buffer.write(u32(len(self.slots)))
-            buffer.write(u32(len(self.x38_section)))
-            tag_groups = []
-            body_sizes = {}
-            for command in self.commands:
-                if "Tags" in command:
-                    if command["Tags"] not in tag_groups:
-                        tag_groups.append(command["Tags"])
-            event_count = 0
-            x38 = 0
-            body_tags = []
-            x38_entries = []
-            for node in self.nodes:
-                if "Tags" in self.nodes[node]:
-                    if self.nodes[node]["Tags"] not in tag_groups:
-                        tag_groups.append(self.nodes[node]["Tags"])
-                for entry in self.nodes[node]["0x38 Entries"]:
-                    x38_entries.append(entry)
-                if self.nodes[node]["Node Type"] == "PreviousTagSelector":
-                    for child in self.nodes[node]["Body"]["Child Nodes"]:
-                        if child["Tags"] and child["Tags"] not in tag_groups:
-                            body_tags.append(child["Tags"])
-                if self.nodes[node]["Node Type"] == "Event":
-                    event_count += 1
-                if self.nodes[node]["Node Type"] == "InitialFrame":
-                    if "Tags" in self.nodes[node]["Body"] and self.nodes[node]["Body"]["Tags"] not in tag_groups:
-                        body_tags.append(self.nodes[node]["Body"]["Tags"])
-                x38 += len(self.nodes[node]["0x38 Entries"])
-                body_sizes[node] = self.CalcBodySize(self.nodes[node], self.version)
-            for tag in body_tags:
-                if tag not in tag_groups:
-                    tag_groups.append(tag)
-            offsets, tag_map, event_offsets = self.CalcOffsets(body_sizes, event_count, x38, tag_groups, buffer)
-            buffer.write(u32(offsets["Local Blackboard"]))
-            buffer.write(u32(offsets["Strings"]))
-            buffer.write(u32(offsets["Enum"]))
-            buffer.write(u32(offsets["0x2C"]))
-            buffer.write(u32(offsets["Event Offsets"]))
-            buffer.write(u32(offsets["Slots"]))
-            buffer.write(u32(offsets["0x38"]))
-            buffer.write(u32(offsets["0x38 Indices"]))
-            buffer.write(u32(offsets["0x40"]))
-            buffer.write(u32(len(self.x40_section)))
-            buffer.write(u32(offsets["Bone Groups"]))
-            buffer.write(u32(len(self.bone_groups)))
-            buffer.write(u32(0)) # string pool size to be written to later
-            buffer.write(u32(offsets["Transitions"]))
-            buffer.write(u32(offsets["Tag List"]))
-            buffer.write(u32(offsets["ASMarkings"]))
-            buffer.write(u32(offsets["EXB"]))
-            buffer.write(u32(offsets["Command Groups"]))
-            if self.version == 0x417:
-                buffer.write(u32(offsets["0x68"]))
-            for command in self.commands:
-                buffer.add_string(command["Name"])
-                buffer.write(u32(buffer._string_refs[command["Name"]]))
-                if "Tags" in command:
-                    for tag in command["Tags"]:
-                        buffer.add_string(tag)
-                    buffer.write(u32(tag_map[tuple(command["Tags"])]))
-                else:
-                    buffer.write(u32(0))
-                self.WriteParameter(buffer, command["Unknown 1"])
-                self.WriteParameter(buffer, command["Unknown 2"])
-                buffer.write(u32(command["Unknown 3"]))
-                # Scuffed but works
-                parts = command["GUID"].split('-')
-                parts = [int(i, 16) for i in parts]
-                buffer.write(u32(parts[0]))
-                buffer.write(u16(parts[1]))
-                buffer.write(u16(parts[2]))
-                buffer.write(u16(parts[3]))
-                parts[4] = hex(parts[4])[2:]
-                while len(parts[4]) < 12:
-                    parts[4] = "0" + parts[4]
-                buffer.write(byte_custom(bytes.fromhex(parts[4]), 6))
-                buffer.write(u16(command["Left Node Index"]))
-                buffer.write(u16(command["Right Node Index"] + 1))
-            body_offset = offsets["Node Bodies"]
-            x40_index = 0
-            x3c_index = 0
-            for index in self.nodes:
-                buffer.write(u16(NodeType[self.nodes[index]["Node Type"]].value))
-                buffer.write(u8(len(self.nodes[index]["0x38 Entries"])))
-                buffer.write(u8(self.nodes[index]["Unknown"]))
-                if "Tags" in self.nodes[index]:
-                    for tag in self.nodes[index]["Tags"]:
-                        buffer.add_string(tag)
-                    buffer.write(u32(tag_map[tuple(self.nodes[index]["Tags"])]))
-                else:
-                    buffer.write(u32(0))
-                buffer.write(u32(body_offset))
-                body_offset += body_sizes[index]
-                buffer.write(u16(x40_index))
-                x40_index += len(self.nodes[index]["0x40 Entries"])
-                buffer.write(u16(len(self.nodes[index]["0x40 Entries"])))
-                buffer.write(u16(x3c_index))
-                x3c_index += len(self.nodes[index]["0x38 Entries"])
-                if "ASMarkings" in self.nodes[index]:
-                    buffer.write(u16(self.as_markings.index(self.nodes[index]["ASMarkings"]) + 1))
-                else:
-                    buffer.write(u16(0))
-                # Scuffed but works
-                parts = self.nodes[index]["GUID"].split('-')
-                parts = [int(i, 16) for i in parts]
-                buffer.write(u32(parts[0]))
-                buffer.write(u16(parts[1]))
-                buffer.write(u16(parts[2]))
-                buffer.write(u16(parts[3]))
-                parts[4] = hex(parts[4])[2:]
-                while len(parts[4]) < 12:
-                    parts[4] = "0" + parts[4]
-                buffer.write(byte_custom(bytes.fromhex(parts[4]), 6))
-            for offset in event_offsets:
-                buffer.write(u32(offset))
-            event_index = 0
-            for index in self.nodes:
-                if "Body" in self.nodes[index]:
-                    body = self.nodes[index]["Body"]
-                    if self.nodes[index]["Node Type"] == "FloatSelector":
-                        self.WriteParameter(buffer, body["Parameter"])
-                        self.WriteParameter(buffer, body["Unknown 1"])
-                        buffer.write(u32(1 if body["Unknown 2"] else 0))
-                        self.WriteConnections(buffer, body, self.nodes[index]["Node Type"])
-                    elif self.nodes[index]["Node Type"] == "StringSelector":
-                        self.WriteParameter(buffer, body["Parameter"])
-                        self.WriteParameter(buffer, body["Unknown 1"])
-                        buffer.write(u32(1 if body["Unknown 2"] else 0))
-                        self.WriteConnections(buffer, body, self.nodes[index]["Node Type"])
-                    elif self.nodes[index]["Node Type"] == "SkeletalAnimation":
-                        self.WriteParameter(buffer, body["Animation"])
-                        buffer.write(u32(body["Unknown 1"]))
-                        buffer.write(u32(body["Unknown 2"]))
-                        self.WriteParameter(buffer, body["Unknown 3"])
-                        self.WriteParameter(buffer, body["Unknown 4"])
-                        self.WriteConnections(buffer, body, self.nodes[index]["Node Type"])
-                    elif self.nodes[index]["Node Type"] == "State":
-                        self.WriteConnections(buffer, body, self.nodes[index]["Node Type"])
-                    elif self.nodes[index]["Node Type"] == "OneDimensionalBlender":
-                        self.WriteParameter(buffer, body["Parameter"])
-                        buffer.write(u32(body["Unknown"]))
-                        self.WriteConnections(buffer, body, self.nodes[index]["Node Type"])
-                    elif self.nodes[index]["Node Type"] == "Sequential":
-                        self.WriteParameter(buffer, body["Unknown 1"])
-                        self.WriteParameter(buffer, body["Unknown 2"])
-                        self.WriteParameter(buffer, body["Unknown 3"])
-                        self.WriteConnections(buffer, body, self.nodes[index]["Node Type"])
-                    elif self.nodes[index]["Node Type"] == "IntSelector":
-                        self.WriteParameter(buffer, body["Parameter"])
-                        self.WriteParameter(buffer, body["Unknown 1"])
-                        buffer.write(u32(1 if body["Unknown 2"] else 0))
-                        self.WriteConnections(buffer, body, self.nodes[index]["Node Type"])
-                    elif self.nodes[index]["Node Type"] == "Simultaneous":
-                        buffer.write(u32(body["Unknown"]))
-                        self.WriteConnections(buffer, body, self.nodes[index]["Node Type"])
-                    elif self.nodes[index]["Node Type"] == "Event":
-                        buffer.write(u32(event_index))
-                        event_index += 1
-                        self.WriteConnections(buffer, body, self.nodes[index]["Node Type"])
-                    elif self.nodes[index]["Node Type"] == "MaterialAnimation":
-                        buffer.write(u32(body["Unknown 1"]))
-                        self.WriteParameter(buffer, body["Animation"])
-                        self.WriteParameter(buffer, body["Unknown 2"])
-                        self.WriteConnections(buffer, body, self.nodes[index]["Node Type"])
-                    elif self.nodes[index]["Node Type"] == "FrameController":
-                        self.WriteParameter(buffer, body["Animation Rate"])
-                        self.WriteParameter(buffer, body["Start Frame"])
-                        self.WriteParameter(buffer, body["End Frame"])
-                        buffer.write(u32(body["Unknown Flag"]))
-                        self.WriteParameter(buffer, body["Loop Cancel Flag"])
-                        self.WriteParameter(buffer, body["Unknown 2"])
-                        self.WriteParameter(buffer, body["Unknown 3"])
-                        self.WriteParameter(buffer, body["Unknown 4"])
-                        self.WriteParameter(buffer, body["Unknown 5"])
-                        self.WriteParameter(buffer, body["Unknown 6"])
-                        self.WriteParameter(buffer, body["Unknown 7"])
-                        self.WriteParameter(buffer, body["Unknown 8"])
-                        buffer.write(u32(1 if body["Unknown 9"] else 0))
-                        self.WriteParameter(buffer, body["Unknown 10"])
-                        if self.version == 0x417:
-                            self.WriteParameter(buffer, body["Unknown 11"])
-                        buffer.write(u32(body["Unknown 12"]))
-                        buffer.write(u32(body["Unknown 13"]))
-                        self.WriteConnections(buffer, body, self.nodes[index]["Node Type"])
-                    elif self.nodes[index]["Node Type"] == "DummyAnimation":
-                        self.WriteParameter(buffer, body["Frame"])
-                        self.WriteParameter(buffer, body["Unknown"])
-                        self.WriteConnections(buffer, body, self.nodes[index]["Node Type"])
-                    elif self.nodes[index]["Node Type"] == "RandomSelector":
-                        buffer.write(u32(body["Unknown 1"]))
-                        self.WriteParameter(buffer, body["Unknown 2"])
-                        self.WriteParameter(buffer, body["Unknown 3"])
-                        buffer.write(u32(1 if body["Unknown 4"] else 0))
-                        self.WriteConnections(buffer, body, self.nodes[index]["Node Type"])
-                    elif self.nodes[index]["Node Type"] == "PreviousTagSelector":
-                        buffer.write(u32(body["Unknown"]))
-                        self.WriteConnections(buffer, body, self.nodes[index]["Node Type"], tag_map)
-                    elif self.nodes[index]["Node Type"] == "BonePositionSelector":
-                        self.WriteParameter(buffer, body["Bone 1"])
-                        self.WriteParameter(buffer, body["Bone 2"])
-                        buffer.write(u32(body["Unknown 1"]))
-                        buffer.write(u32(body["Unknown 2"]))
-                        self.WriteParameter(buffer, body["Unknown 3"])
-                        self.WriteConnections(buffer, body, self.nodes[index]["Node Type"])
-                    elif self.nodes[index]["Node Type"] == "BoneAnimation":
-                        self.WriteParameter(buffer, body["Animation"])
-                        self.WriteParameter(buffer, body["Unknown 1"])
-                        buffer.write(u32(body["Unknown 2"]))
-                        buffer.write(u32(body["Unknown 3"]))
-                        self.WriteParameter(buffer, body["Unknown 4"])
-                        self.WriteConnections(buffer, body, self.nodes[index]["Node Type"])
-                    elif self.nodes[index]["Node Type"] == "InitialFrame":
-                        buffer.write(u32(body["Flag"]))
-                        if "Tags" in body:
-                            buffer.write(u32(tag_map[tuple(body["Tags"])]))
-                        else:
-                            buffer.write(u32(0))
-                        self.WriteParameter(buffer, body["Unknown 1"])
-                        self.WriteParameter(buffer, body["Bone 1"])
-                        self.WriteParameter(buffer, body["Bone 2"])
-                        buffer.write(u32(body["Unknown 2"]))
-                        self.WriteParameter(buffer, body["Unknown 3"])
-                        self.WriteParameter(buffer, body["Unknown 4"])
-                        self.WriteConnections(buffer, body, self.nodes[index]["Node Type"])
-                    elif self.nodes[index]["Node Type"] == "BoneBlender":
-                        self.WriteParameter(buffer, body["Bone Group"]["Name"])
-                        buffer.write(u32(body["Unknown 1"]))
-                        self.WriteParameter(buffer, body["Unknown 2"])
-                        buffer.write(u32(body["Unknown 3"]))
-                        buffer.write(u32(body["Unknown 4"]))
-                        self.WriteConnections(buffer, body, self.nodes[index]["Node Type"])
-                    elif self.nodes[index]["Node Type"] == "BoolSelector":
-                        self.WriteParameter(buffer, body["Parameter"])
-                        self.WriteParameter(buffer, body["Unknown 1"])
-                        buffer.write(u32(1 if body["Unknown 2"] else 0))
-                        self.WriteConnections(buffer, body, self.nodes[index]["Node Type"])
-                    elif self.nodes[index]["Node Type"] == "Alert":
-                        self.WriteParameter(buffer, body["Message"])
-                        self.WriteConnections(buffer, body, self.nodes[index]["Node Type"])
-                    elif self.nodes[index]["Node Type"] == "SubtractAnimation":
-                        self.WriteConnections(buffer, body, self.nodes[index]["Node Type"])
-                    elif self.nodes[index]["Node Type"] == "ShapeAnimation":
-                        self.WriteParameter(buffer, body["Animation"])
-                        self.WriteConnections(buffer, body, self.nodes[index]["Node Type"])
-                    elif self.nodes[index]["Node Type"] == "Unknown7":
-                        self.WriteConnections(buffer, body, self.nodes[index]["Node Type"])
-                    else:
-                        raise ValueError(f"Invalid node type {self.nodes[index]['Node Type']}")
-            for entry in x38_entries:
-                buffer.write(u32(self.x38_section.index(entry)))
-            value_offset = offsets["0x38"] + 0x18 * len(self.x38_section)
-            for entry in self.x38_section:
-                buffer.write(u32(entry["Type"]))
-                buffer.write(u32(value_offset))
-                if entry["Type"] == 0:
-                    value_offset += 12
-                elif entry["Type"] == 1:
-                    value_offset += 24
-                # Scuffed but works
-                parts = entry["GUID"].split('-')
-                parts = [int(i, 16) for i in parts]
-                buffer.write(u32(parts[0]))
-                buffer.write(u16(parts[1]))
-                buffer.write(u16(parts[2]))
-                buffer.write(u16(parts[3]))
-                parts[4] = hex(parts[4])[2:]
-                while len(parts[4]) < 12:
-                    parts[4] = "0" + parts[4]
-                buffer.write(byte_custom(bytes.fromhex(parts[4]), 6))
-            for entry in self.x38_section:
-                if entry["Type"] == 0:
-                    self.WriteParameter(buffer, entry["Entry"]["Start Frame"])
-                    buffer.write(u32(entry["Entry"]["Unknown 2"]))
-                elif entry["Type"] == 1:
-                    self.WriteParameter(buffer, entry["Entry"]["Start Frame"])
-                    self.WriteParameter(buffer, entry["Entry"]["End Frame"])
-                    self.WriteParameter(buffer, entry["Entry"]["Unknown 3"])
-            buffer.write(u32(len(self.x2c_section)))
-            for entry in self.x2c_section:
-                buffer.write(u16(entry["Source Node"]))
-                buffer.write(u16(entry["Target Node"]))
-                buffer.write(u32(entry["Unknown 1"]))
-                buffer.write(u32(entry["Unknown 2"]))
-                buffer.write(u32(entry["Unknown 3"]))
-                for subentry in entry["Entries"]:
-                    buffer.write(u16(subentry["Entry Type"]))
-                    buffer.write(u16(subentry["Unknown Type"]))
-                    if subentry["Entry Type"]:
-                        self.WriteParameter(buffer, subentry["Unknown 1"])
-                        self.WriteParameter(buffer, subentry["Unknown 2"])
-                    else:
-                        buffer.write(u64(0))
-                        buffer.write(u64(0))
-            for event in self.events:
-                buffer.write(u32(len(event["Trigger Events"])))
-                buffer.write(u32(len(event["Hold Events"])))
-                offset = buffer.tell() + 0x18 * len(event["Trigger Events"]) + 0x1c * len(event["Hold Events"])
-                for trigger in event["Trigger Events"]:
-                    buffer.add_string(trigger["Name"])
-                    buffer.write(u32(buffer._string_refs[trigger["Name"]]))
-                    buffer.write(u32(trigger["Unknown 1"]))
-                    buffer.write(u32(offset))
-                    offset += 4 + 4 * len(trigger["Parameters"])
-                    buffer.write(u32(8 * len(trigger["Parameters"])))
-                    buffer.write(u32(int(trigger["Unknown Hash"], 16)))
-                    buffer.write(f32(trigger["Start Frame"]))
-                for hold in event["Hold Events"]:
-                    buffer.add_string(hold["Name"])
-                    buffer.write(u32(buffer._string_refs[hold["Name"]]))
-                    buffer.write(u32(hold["Unknown 1"]))
-                    buffer.write(u32(offset))
-                    offset += 4 + 4 * len(hold["Parameters"])
-                    buffer.write(u32(8 * len(hold["Parameters"])))
-                    buffer.write(u32(int(hold["Unknown Hash"], 16)))
-                    buffer.write(f32(hold["Start Frame"]))
-                    buffer.write(f32(hold["End Frame"]))
-                for trigger in event["Trigger Events"]:
-                    buffer.write(u32(len(trigger["Parameters"])))
-                    for param in trigger["Parameters"]:
-                        if type(param) == str:
-                            flag = 0x40 << 24
-                        elif type(param) == float:
-                            flag = 0x30 << 24
-                        elif type(param) == int:
-                            flag = 0x20 << 24
-                        elif type(param) == bool:
-                            flag = 0x10 << 24
-                        else:
-                            raise ValueError(param)
-                        buffer.write(u32(offset | flag))
-                        offset += 8
-                for hold in event["Hold Events"]:
-                    buffer.write(u32(len(hold["Parameters"])))
-                    for param in hold["Parameters"]:
-                        if type(param) == str:
-                            flag = 0x40 << 24
-                        elif type(param) == float:
-                            flag = 0x30 << 24
-                        elif type(param) == int:
-                            flag = 0x20 << 24
-                        elif type(param) == bool:
-                            flag = 0x10 << 24
-                        else:
-                            raise ValueError(param)
-                        buffer.write(u32(offset | flag))
-                        offset += 8
-                for trigger in event["Trigger Events"]:
-                    for param in trigger["Parameters"]:
-                        self.WriteParameter(buffer, param)
-                for hold in event["Hold Events"]:
-                    for param in hold["Parameters"]:
-                        self.WriteParameter(buffer, param)
-            buffer.write(u32(len(self.transitions)))
-            buffer.write(u32(0)) # tf does this do
-            offset = buffer.tell() + 0xc * len(self.transitions)
-            for transition in self.transitions:
-                buffer.write(u32(len(transition["Transitions"])))
-                buffer.write(s32(transition["Unknown"]))
-                buffer.write(u32(offset))
-                offset += 0x20 * len(transition["Transitions"])
-            for transition in self.transitions:
-                for entry in transition["Transitions"]:
-                    buffer.add_string(entry["Command 1"])
-                    buffer.write(u32(buffer._string_refs[entry["Command 1"]]))
-                    buffer.add_string(entry["Command 2"])
-                    buffer.write(u32(buffer._string_refs[entry["Command 2"]]))
-                    if entry["Parameter Type"] == "int":
-                        buffer.write(u8(0))
-                    elif entry["Parameter Type"] == "string":
-                        buffer.write(u8(1))
-                    elif entry["Parameter Type"] == "float":
-                        buffer.write(u8(2))
-                    elif entry["Parameter Type"] == "bool":
-                        buffer.write(u8(3))
-                    elif entry["Parameter Type"] == "vec3f":
-                        buffer.write(u8(4))
-                    else:
-                        raise ValueError(f"Invalid parameter type {entry['Parameter Type']}")
-                    buffer.write(u8(1 if entry["Allow Multiple Matches"] else 0))
-                    if "Command Group" in entry:
-                        buffer.write(u16(self.command_groups.index(entry["Command Group"]) + 1))
-                    else:
-                        buffer.write(u16(0))
-                    buffer.add_string(entry["Parameter"])
-                    buffer.write(u32(buffer._string_refs[entry["Parameter"]]))
-                    self.WriteParameter(buffer, entry["Value"])
-                    if entry["Parameter Type"] != "vec3f":
-                        buffer.write(u64(0))
-            if self.command_groups:
-                buffer.write(u32(len(self.command_groups)))
-                offset = buffer.tell() + 4 * len(self.command_groups)
-                for group in self.command_groups:
-                    buffer.write(u32(offset))
-                    offset += 4 + len(group) * 4
-                for group in self.command_groups:
-                    buffer.write(u32(len(group)))
-                    for cmd in group:
-                        buffer.add_string(cmd)
-                        buffer.write(u32(buffer._string_refs[cmd]))
-            if self.local_blackboard_params:
-                index = 0
-                pos = 0
-                for t in type_param:
-                    if t in self.local_blackboard_params:
-                        buffer.write(u16(len(self.local_blackboard_params[t])))
-                    else:
-                        buffer.write(u16(0))
-                    buffer.write(u16(index))
-                    if t in self.local_blackboard_params:
-                        index += len(self.local_blackboard_params[t])
-                    if t == "vec3f" and "vec3f" in self.local_blackboard_params:
-                        buffer.write(u16(pos))
-                        pos = pos + len(self.local_blackboard_params[t]) * 12
-                    elif t in self.local_blackboard_params:
-                        buffer.write(u16(pos))
-                        pos = pos + len(self.local_blackboard_params[t]) * 4
-                    else:
-                        buffer.write(u16(pos))
-                    buffer.write(u16(0))
-                files = []
-                for t in self.local_blackboard_params:
-                    for entry in self.local_blackboard_params[t]:
-                        buffer.add_string(entry["Name"])
-                        name_offset = buffer._string_refs[entry["Name"]]
-                        if "File Reference" in entry:
-                            if entry["File Reference"] not in files:
-                                files.append(entry["File Reference"])
-                            name_offset = name_offset | (1 << 31)
-                            name_offset = name_offset | (files.index(entry["File Reference"]) << 24)
-                        buffer.write(u32(name_offset))
-                start = buffer.tell()
-                size = 0
-                for t in self.local_blackboard_params:
-                    for entry in self.local_blackboard_params[t]:
-                        if t == "int":
-                            buffer.write(u32(entry["Init Value"]))
-                            size += 4
-                        if t == "float":
-                            buffer.write(f32(entry["Init Value"]))
-                            size += 4
-                        if t == "bool":
-                            buffer.write(u32(int(entry["Init Value"])))
-                            size += 4
-                        if t == "vec3f":
-                            buffer.write(f32(entry["Init Value"][0]))
-                            buffer.write(f32(entry["Init Value"][1]))
-                            buffer.write(f32(entry["Init Value"][2]))
-                            size += 12
-                        if t == "string":
-                            buffer.add_string(entry["Init Value"])
-                            buffer.write(u32(buffer._string_refs[entry["Init Value"]]))
-                            size += 4
-                buffer.seek(start + size)
-                for file in files:
-                    buffer.add_string(file["Filename"])
-                    buffer.write(u32(buffer._string_refs[file["Filename"]]))
-                    buffer.write(u32(mmh3.hash(file["Filename"], signed=False)))
-                    buffer.write(u32(mmh3.hash(os.path.splitext(os.path.basename(file["Filename"]))[0], signed=False)))
-                    buffer.write(u32(mmh3.hash(os.path.splitext(file["Filename"])[1].replace('.', ''), signed=False)))        
-            else:
-                buffer.skip(48)
-            for entry in self.slots:
-                buffer.write(u16(len(entry["Entries"])))
-                buffer.write(u16(entry["Unknown"]))
-                buffer.add_string(entry["Partial 1"])
-                buffer.add_string(entry["Partial 2"])
-                buffer.write(u32(buffer._string_refs[entry["Partial 1"]]))
-                buffer.write(u32(buffer._string_refs[entry["Partial 2"]]))
-                for slot in entry["Entries"]:
-                    buffer.add_string(slot["Bone"])
-                    buffer.write(u32(buffer._string_refs[slot["Bone"]]))
-                    buffer.write(u16(slot["Unknown 1"]))
-                    buffer.write(u16(slot["Unknown 2"]))
-            offset = buffer.tell() + 0x10 * len(self.bone_groups)
-            for group in self.bone_groups:
-                buffer.write(u32(offset))
-                offset += 8 * len(group["Bones"])
-                buffer.add_string(group["Name"])
-                buffer.write(u32(buffer._string_refs[group["Name"]]))
-                buffer.write(u32(len(group["Bones"])))
-                buffer.write(u32(group["Unknown"]))
-            for group in self.bone_groups:
-                for bone in group["Bones"]:
-                    buffer.add_string(bone["Name"])
-                    buffer.write(u32(buffer._string_refs[bone["Name"]]))
-                    buffer.write(f32(bone["Unknown"]))
-            for entry in self.x40_section:
-                buffer.write(u32(entry["Unknown 1"]))
-                buffer.write(f32(entry["Angle"]))
-                buffer.write(u32(entry["Type"]))
-                buffer.write(f32(entry["Unknown 2"]))
-                buffer.write(f32(entry["Rate"]))
-                buffer.write(f32(entry["Unknown 3"]))
-                buffer.write(f32(entry["Min"]))
-                buffer.write(f32(entry["Max"]))
-            buffer.write(u32(len(self.tag_list)))
-            for tag in self.tag_list:
-                buffer.add_string(tag)
-                buffer.write(u32(buffer._string_refs[tag]))
-            for group in tag_groups:
-                buffer.write(u32(len(group)))
-                for tag in group:
+            self.ToBuffer(f)
+
+    def ToBuffer(self, f):
+        buffer = WriteStream(f)
+        buffer.write("ASB ".encode())
+        buffer.write(u32(self.version))
+        buffer.add_string(self.filename)
+        buffer.write(u32(buffer._string_refs[self.filename]))
+        buffer.write(u32(len(self.commands)))
+        buffer.write(u32(len(self.nodes)))
+        buffer.write(u32(len(self.events)))
+        buffer.write(u32(len(self.slots)))
+        buffer.write(u32(len(self.x38_section)))
+        tag_groups = []
+        body_sizes = {}
+        for command in self.commands:
+            if "Tags" in command:
+                if command["Tags"] not in tag_groups:
+                    tag_groups.append(command["Tags"])
+        event_count = 0
+        x38 = 0
+        body_tags = []
+        x38_entries = []
+        for i in range(len(self.nodes)):
+            if "Tags" in self.nodes[i]:
+                if self.nodes[i]["Tags"] not in tag_groups:
+                    tag_groups.append(self.nodes[i]["Tags"])
+            for entry in self.nodes[i]["0x38 Entries"]:
+                x38_entries.append(entry)
+            if self.nodes[i]["Node Type"] == "PreviousTagSelector":
+                for child in self.nodes[i]["Body"]["Child Nodes"]:
+                    if child["Tags"] and child["Tags"] not in tag_groups:
+                        body_tags.append(child["Tags"])
+            if self.nodes[i]["Node Type"] == "Event":
+                event_count += 1
+            if self.nodes[i]["Node Type"] == "InitialFrame":
+                if "Tags" in self.nodes[i]["Body"] and self.nodes[i]["Body"]["Tags"] not in tag_groups:
+                    body_tags.append(self.nodes[i]["Body"]["Tags"])
+            x38 += len(self.nodes[i]["0x38 Entries"])
+            body_sizes[i] = self.CalcBodySize(self.nodes[i], self.version)
+        for tag in body_tags:
+            if tag not in tag_groups:
+                tag_groups.append(tag)
+        offsets, tag_map, event_offsets = self.CalcOffsets(body_sizes, event_count, x38, tag_groups, buffer)
+        buffer.write(u32(offsets["Local Blackboard"]))
+        buffer.write(u32(offsets["Strings"]))
+        buffer.write(u32(offsets["Enum"]))
+        buffer.write(u32(offsets["0x2C"]))
+        buffer.write(u32(offsets["Event Offsets"]))
+        buffer.write(u32(offsets["Slots"]))
+        buffer.write(u32(offsets["0x38"]))
+        buffer.write(u32(offsets["0x38 Indices"]))
+        buffer.write(u32(offsets["0x40"]))
+        buffer.write(u32(len(self.x40_section)))
+        buffer.write(u32(offsets["Bone Groups"]))
+        buffer.write(u32(len(self.bone_groups)))
+        buffer.write(u32(0)) # string pool size to be written to later
+        buffer.write(u32(offsets["Transitions"]))
+        buffer.write(u32(offsets["Tag List"]))
+        buffer.write(u32(offsets["ASMarkings"]))
+        buffer.write(u32(offsets["EXB"]))
+        buffer.write(u32(offsets["Command Groups"]))
+        if self.version == 0x417:
+            buffer.write(u32(offsets["0x68"]))
+        for command in self.commands:
+            buffer.add_string(command["Name"])
+            buffer.write(u32(buffer._string_refs[command["Name"]]))
+            if "Tags" in command:
+                for tag in command["Tags"]:
                     buffer.add_string(tag)
-                    buffer.write(u32(buffer._string_refs[tag]))  
-            buffer.seek(offsets["ASMarkings"])
-            buffer.write(u32(len(self.as_markings)))
-            for triplet in self.as_markings:
-                for string in triplet:
-                    buffer.add_string(string)
-                    buffer.write(u32(buffer._string_refs[string]))
-            buffer.write(u32(len(self.x68_section)))
-            for entry in self.x68_section:
-                buffer.add_string(entry["Name"])
-                buffer.write(u32(buffer._string_refs[entry["Name"]]))
-                buffer.write(f32(entry["Unknown"]))
-            buffer.write(u32(len(self.enum_resolve)))
-            for entry in self.enum_resolve:
-                buffer.write(u32(entry))
-                buffer.add_string(self.enum_resolve[entry]["Class Name"])
-                buffer.add_string(self.enum_resolve[entry]["Value Name"])
-                buffer.write(u32(buffer._string_refs[self.enum_resolve[entry]["Class Name"]]))
-                buffer.write(u32(buffer._string_refs[self.enum_resolve[entry]["Value Name"]]))
-            buffer.write(buffer._strings)
-            buffer.seek(0x50)
-            buffer.write(u32(len(buffer._strings)))
+                buffer.write(u32(tag_map[tuple(command["Tags"])]))
+            else:
+                buffer.write(u32(0))
+            self.WriteParameter(buffer, command["Unknown 1"])
+            self.WriteParameter(buffer, command["Unknown 2"])
+            buffer.write(u32(command["Unknown 3"]))
+            # Scuffed but works
+            parts = command["GUID"].split('-')
+            parts = [int(i, 16) for i in parts]
+            buffer.write(u32(parts[0]))
+            buffer.write(u16(parts[1]))
+            buffer.write(u16(parts[2]))
+            buffer.write(u16(parts[3]))
+            parts[4] = hex(parts[4])[2:]
+            while len(parts[4]) < 12:
+                parts[4] = "0" + parts[4]
+            buffer.write(byte_custom(bytes.fromhex(parts[4]), 6))
+            buffer.write(u16(command["Left Node Index"]))
+            buffer.write(u16(command["Right Node Index"] + 1))
+        body_offset = offsets["Node Bodies"]
+        x40_index = 0
+        x3c_index = 0
+        for index in range(len(self.nodes)):
+            buffer.write(u16(NodeType[self.nodes[index]["Node Type"]].value))
+            buffer.write(u8(len(self.nodes[index]["0x38 Entries"])))
+            buffer.write(u8(self.nodes[index]["Unknown"]))
+            if "Tags" in self.nodes[index]:
+                for tag in self.nodes[index]["Tags"]:
+                    buffer.add_string(tag)
+                buffer.write(u32(tag_map[tuple(self.nodes[index]["Tags"])]))
+            else:
+                buffer.write(u32(0))
+            buffer.write(u32(body_offset))
+            body_offset += body_sizes[index]
+            buffer.write(u16(x40_index))
+            x40_index += len(self.nodes[index]["0x40 Entries"])
+            buffer.write(u16(len(self.nodes[index]["0x40 Entries"])))
+            buffer.write(u16(x3c_index))
+            x3c_index += len(self.nodes[index]["0x38 Entries"])
+            if "ASMarkings" in self.nodes[index]:
+                buffer.write(u16(self.as_markings.index(self.nodes[index]["ASMarkings"]) + 1))
+            else:
+                buffer.write(u16(0))
+            # Scuffed but works
+            parts = self.nodes[index]["GUID"].split('-')
+            parts = [int(i, 16) for i in parts]
+            buffer.write(u32(parts[0]))
+            buffer.write(u16(parts[1]))
+            buffer.write(u16(parts[2]))
+            buffer.write(u16(parts[3]))
+            parts[4] = hex(parts[4])[2:]
+            while len(parts[4]) < 12:
+                parts[4] = "0" + parts[4]
+            buffer.write(byte_custom(bytes.fromhex(parts[4]), 6))
+        for offset in event_offsets:
+            buffer.write(u32(offset))
+        event_index = 0
+        for index in range(len(self.nodes)):
+            if "Body" in self.nodes[index]:
+                body = self.nodes[index]["Body"]
+                if self.nodes[index]["Node Type"] == "FloatSelector":
+                    self.WriteParameter(buffer, body["Parameter"])
+                    self.WriteParameter(buffer, body["Unknown 1"])
+                    buffer.write(u32(1 if body["Unknown 2"] else 0))
+                    self.WriteConnections(buffer, body, self.nodes[index]["Node Type"])
+                elif self.nodes[index]["Node Type"] == "StringSelector":
+                    self.WriteParameter(buffer, body["Parameter"])
+                    self.WriteParameter(buffer, body["Unknown 1"])
+                    buffer.write(u32(1 if body["Unknown 2"] else 0))
+                    self.WriteConnections(buffer, body, self.nodes[index]["Node Type"])
+                elif self.nodes[index]["Node Type"] == "SkeletalAnimation":
+                    self.WriteParameter(buffer, body["Animation"])
+                    buffer.write(u32(body["Unknown 1"]))
+                    buffer.write(u32(body["Unknown 2"]))
+                    self.WriteParameter(buffer, body["Unknown 3"])
+                    self.WriteParameter(buffer, body["Unknown 4"])
+                    self.WriteConnections(buffer, body, self.nodes[index]["Node Type"])
+                elif self.nodes[index]["Node Type"] == "State":
+                    self.WriteConnections(buffer, body, self.nodes[index]["Node Type"])
+                elif self.nodes[index]["Node Type"] == "OneDimensionalBlender":
+                    self.WriteParameter(buffer, body["Parameter"])
+                    buffer.write(u32(body["Unknown"]))
+                    self.WriteConnections(buffer, body, self.nodes[index]["Node Type"])
+                elif self.nodes[index]["Node Type"] == "Sequential":
+                    self.WriteParameter(buffer, body["Unknown 1"])
+                    self.WriteParameter(buffer, body["Unknown 2"])
+                    self.WriteParameter(buffer, body["Unknown 3"])
+                    self.WriteConnections(buffer, body, self.nodes[index]["Node Type"])
+                elif self.nodes[index]["Node Type"] == "IntSelector":
+                    self.WriteParameter(buffer, body["Parameter"])
+                    self.WriteParameter(buffer, body["Unknown 1"])
+                    buffer.write(u32(1 if body["Unknown 2"] else 0))
+                    self.WriteConnections(buffer, body, self.nodes[index]["Node Type"])
+                elif self.nodes[index]["Node Type"] == "Simultaneous":
+                    buffer.write(u32(body["Unknown"]))
+                    self.WriteConnections(buffer, body, self.nodes[index]["Node Type"])
+                elif self.nodes[index]["Node Type"] == "Event":
+                    buffer.write(u32(event_index))
+                    event_index += 1
+                    self.WriteConnections(buffer, body, self.nodes[index]["Node Type"])
+                elif self.nodes[index]["Node Type"] == "MaterialAnimation":
+                    buffer.write(u32(body["Unknown 1"]))
+                    self.WriteParameter(buffer, body["Animation"])
+                    self.WriteParameter(buffer, body["Unknown 2"])
+                    self.WriteConnections(buffer, body, self.nodes[index]["Node Type"])
+                elif self.nodes[index]["Node Type"] == "FrameController":
+                    self.WriteParameter(buffer, body["Animation Rate"])
+                    self.WriteParameter(buffer, body["Start Frame"])
+                    self.WriteParameter(buffer, body["End Frame"])
+                    buffer.write(u32(body["Unknown Flag"]))
+                    self.WriteParameter(buffer, body["Loop Cancel Flag"])
+                    self.WriteParameter(buffer, body["Unknown 2"])
+                    self.WriteParameter(buffer, body["Unknown 3"])
+                    self.WriteParameter(buffer, body["Unknown 4"])
+                    self.WriteParameter(buffer, body["Unknown 5"])
+                    self.WriteParameter(buffer, body["Unknown 6"])
+                    self.WriteParameter(buffer, body["Unknown 7"])
+                    self.WriteParameter(buffer, body["Unknown 8"])
+                    buffer.write(u32(1 if body["Unknown 9"] else 0))
+                    self.WriteParameter(buffer, body["Unknown 10"])
+                    if self.version == 0x417:
+                        self.WriteParameter(buffer, body["Unknown 11"])
+                    buffer.write(u32(body["Unknown 12"]))
+                    buffer.write(u32(body["Unknown 13"]))
+                    self.WriteConnections(buffer, body, self.nodes[index]["Node Type"])
+                elif self.nodes[index]["Node Type"] == "DummyAnimation":
+                    self.WriteParameter(buffer, body["Frame"])
+                    self.WriteParameter(buffer, body["Unknown"])
+                    self.WriteConnections(buffer, body, self.nodes[index]["Node Type"])
+                elif self.nodes[index]["Node Type"] == "RandomSelector":
+                    buffer.write(u32(body["Unknown 1"]))
+                    self.WriteParameter(buffer, body["Unknown 2"])
+                    self.WriteParameter(buffer, body["Unknown 3"])
+                    buffer.write(u32(1 if body["Unknown 4"] else 0))
+                    self.WriteConnections(buffer, body, self.nodes[index]["Node Type"])
+                elif self.nodes[index]["Node Type"] == "PreviousTagSelector":
+                    buffer.write(u32(body["Unknown"]))
+                    self.WriteConnections(buffer, body, self.nodes[index]["Node Type"], tag_map)
+                elif self.nodes[index]["Node Type"] == "BonePositionSelector":
+                    self.WriteParameter(buffer, body["Bone 1"])
+                    self.WriteParameter(buffer, body["Bone 2"])
+                    buffer.write(u32(body["Unknown 1"]))
+                    buffer.write(u32(body["Unknown 2"]))
+                    self.WriteParameter(buffer, body["Unknown 3"])
+                    self.WriteConnections(buffer, body, self.nodes[index]["Node Type"])
+                elif self.nodes[index]["Node Type"] == "BoneAnimation":
+                    self.WriteParameter(buffer, body["Animation"])
+                    self.WriteParameter(buffer, body["Unknown 1"])
+                    buffer.write(u32(body["Unknown 2"]))
+                    buffer.write(u32(body["Unknown 3"]))
+                    self.WriteParameter(buffer, body["Unknown 4"])
+                    self.WriteConnections(buffer, body, self.nodes[index]["Node Type"])
+                elif self.nodes[index]["Node Type"] == "InitialFrame":
+                    buffer.write(u32(body["Flag"]))
+                    if "Tags" in body:
+                        buffer.write(u32(tag_map[tuple(body["Tags"])]))
+                    else:
+                        buffer.write(u32(0))
+                    self.WriteParameter(buffer, body["Unknown 1"])
+                    self.WriteParameter(buffer, body["Bone 1"])
+                    self.WriteParameter(buffer, body["Bone 2"])
+                    buffer.write(u32(body["Unknown 2"]))
+                    self.WriteParameter(buffer, body["Unknown 3"])
+                    self.WriteParameter(buffer, body["Unknown 4"])
+                    self.WriteConnections(buffer, body, self.nodes[index]["Node Type"])
+                elif self.nodes[index]["Node Type"] == "BoneBlender":
+                    self.WriteParameter(buffer, body["Bone Group"]["Name"])
+                    buffer.write(u32(body["Unknown 1"]))
+                    self.WriteParameter(buffer, body["Unknown 2"])
+                    buffer.write(u32(body["Unknown 3"]))
+                    buffer.write(u32(body["Unknown 4"]))
+                    self.WriteConnections(buffer, body, self.nodes[index]["Node Type"])
+                elif self.nodes[index]["Node Type"] == "BoolSelector":
+                    self.WriteParameter(buffer, body["Parameter"])
+                    self.WriteParameter(buffer, body["Unknown 1"])
+                    buffer.write(u32(1 if body["Unknown 2"] else 0))
+                    self.WriteConnections(buffer, body, self.nodes[index]["Node Type"])
+                elif self.nodes[index]["Node Type"] == "Alert":
+                    self.WriteParameter(buffer, body["Message"])
+                    self.WriteConnections(buffer, body, self.nodes[index]["Node Type"])
+                elif self.nodes[index]["Node Type"] == "SubtractAnimation":
+                    self.WriteConnections(buffer, body, self.nodes[index]["Node Type"])
+                elif self.nodes[index]["Node Type"] == "ShapeAnimation":
+                    self.WriteParameter(buffer, body["Animation"])
+                    self.WriteConnections(buffer, body, self.nodes[index]["Node Type"])
+                elif self.nodes[index]["Node Type"] == "Unknown7":
+                    self.WriteConnections(buffer, body, self.nodes[index]["Node Type"])
+                else:
+                    raise ValueError(f"Invalid node type {self.nodes[index]['Node Type']}")
+        for entry in x38_entries:
+            buffer.write(u32(self.x38_section.index(entry)))
+        value_offset = offsets["0x38"] + 0x18 * len(self.x38_section)
+        for entry in self.x38_section:
+            buffer.write(u32(entry["Type"]))
+            buffer.write(u32(value_offset))
+            if entry["Type"] == 0:
+                value_offset += 12
+            elif entry["Type"] == 1:
+                value_offset += 24
+            # Scuffed but works
+            parts = entry["GUID"].split('-')
+            parts = [int(i, 16) for i in parts]
+            buffer.write(u32(parts[0]))
+            buffer.write(u16(parts[1]))
+            buffer.write(u16(parts[2]))
+            buffer.write(u16(parts[3]))
+            parts[4] = hex(parts[4])[2:]
+            while len(parts[4]) < 12:
+                parts[4] = "0" + parts[4]
+            buffer.write(byte_custom(bytes.fromhex(parts[4]), 6))
+        for entry in self.x38_section:
+            if entry["Type"] == 0:
+                self.WriteParameter(buffer, entry["Entry"]["Start Frame"])
+                buffer.write(u32(entry["Entry"]["Unknown 2"]))
+            elif entry["Type"] == 1:
+                self.WriteParameter(buffer, entry["Entry"]["Start Frame"])
+                self.WriteParameter(buffer, entry["Entry"]["End Frame"])
+                self.WriteParameter(buffer, entry["Entry"]["Unknown 3"])
+        buffer.write(u32(len(self.x2c_section)))
+        for entry in self.x2c_section:
+            buffer.write(u16(entry["Source Node"]))
+            buffer.write(u16(entry["Target Node"]))
+            buffer.write(u32(entry["Unknown 1"]))
+            buffer.write(u32(entry["Unknown 2"]))
+            buffer.write(u32(entry["Unknown 3"]))
+            for subentry in entry["Entries"]:
+                buffer.write(u16(subentry["Entry Type"]))
+                buffer.write(u16(subentry["Unknown Type"]))
+                if subentry["Entry Type"]:
+                    self.WriteParameter(buffer, subentry["Unknown 1"])
+                    self.WriteParameter(buffer, subentry["Unknown 2"])
+                else:
+                    buffer.write(u64(0))
+                    buffer.write(u64(0))
+        for event in self.events:
+            buffer.write(u32(len(event["Trigger Events"])))
+            buffer.write(u32(len(event["Hold Events"])))
+            offset = buffer.tell() + 0x18 * len(event["Trigger Events"]) + 0x1c * len(event["Hold Events"])
+            for trigger in event["Trigger Events"]:
+                buffer.add_string(trigger["Name"])
+                buffer.write(u32(buffer._string_refs[trigger["Name"]]))
+                buffer.write(u32(trigger["Unknown 1"]))
+                buffer.write(u32(offset))
+                offset += 4 + 4 * len(trigger["Parameters"])
+                buffer.write(u32(8 * len(trigger["Parameters"])))
+                buffer.write(u32(int(trigger["Unknown Hash"], 16)))
+                buffer.write(f32(trigger["Start Frame"]))
+            for hold in event["Hold Events"]:
+                buffer.add_string(hold["Name"])
+                buffer.write(u32(buffer._string_refs[hold["Name"]]))
+                buffer.write(u32(hold["Unknown 1"]))
+                buffer.write(u32(offset))
+                offset += 4 + 4 * len(hold["Parameters"])
+                buffer.write(u32(8 * len(hold["Parameters"])))
+                buffer.write(u32(int(hold["Unknown Hash"], 16)))
+                buffer.write(f32(hold["Start Frame"]))
+                buffer.write(f32(hold["End Frame"]))
+            for trigger in event["Trigger Events"]:
+                buffer.write(u32(len(trigger["Parameters"])))
+                for param in trigger["Parameters"]:
+                    if type(param) == str:
+                        flag = 0x40 << 24
+                    elif type(param) == float:
+                        flag = 0x30 << 24
+                    elif type(param) == int:
+                        flag = 0x20 << 24
+                    elif type(param) == bool:
+                        flag = 0x10 << 24
+                    else:
+                        raise ValueError(param)
+                    buffer.write(u32(offset | flag))
+                    offset += 8
+            for hold in event["Hold Events"]:
+                buffer.write(u32(len(hold["Parameters"])))
+                for param in hold["Parameters"]:
+                    if type(param) == str:
+                        flag = 0x40 << 24
+                    elif type(param) == float:
+                        flag = 0x30 << 24
+                    elif type(param) == int:
+                        flag = 0x20 << 24
+                    elif type(param) == bool:
+                        flag = 0x10 << 24
+                    else:
+                        raise ValueError(param)
+                    buffer.write(u32(offset | flag))
+                    offset += 8
+            for trigger in event["Trigger Events"]:
+                for param in trigger["Parameters"]:
+                    self.WriteParameter(buffer, param)
+            for hold in event["Hold Events"]:
+                for param in hold["Parameters"]:
+                    self.WriteParameter(buffer, param)
+        buffer.write(u32(len(self.transitions)))
+        buffer.write(u32(0)) # tf does this do
+        offset = buffer.tell() + 0xc * len(self.transitions)
+        for transition in self.transitions:
+            buffer.write(u32(len(transition["Transitions"])))
+            buffer.write(s32(transition["Unknown"]))
+            buffer.write(u32(offset))
+            offset += 0x20 * len(transition["Transitions"])
+        for transition in self.transitions:
+            for entry in transition["Transitions"]:
+                buffer.add_string(entry["Command 1"])
+                buffer.write(u32(buffer._string_refs[entry["Command 1"]]))
+                buffer.add_string(entry["Command 2"])
+                buffer.write(u32(buffer._string_refs[entry["Command 2"]]))
+                if entry["Parameter Type"] == "int":
+                    buffer.write(u8(0))
+                elif entry["Parameter Type"] == "string":
+                    buffer.write(u8(1))
+                elif entry["Parameter Type"] == "float":
+                    buffer.write(u8(2))
+                elif entry["Parameter Type"] == "bool":
+                    buffer.write(u8(3))
+                elif entry["Parameter Type"] == "vec3f":
+                    buffer.write(u8(4))
+                else:
+                    raise ValueError(f"Invalid parameter type {entry['Parameter Type']}")
+                buffer.write(u8(1 if entry["Allow Multiple Matches"] else 0))
+                if "Command Group" in entry:
+                    buffer.write(u16(self.command_groups.index(entry["Command Group"]) + 1))
+                else:
+                    buffer.write(u16(0))
+                buffer.add_string(entry["Parameter"])
+                buffer.write(u32(buffer._string_refs[entry["Parameter"]]))
+                self.WriteParameter(buffer, entry["Value"])
+                if entry["Parameter Type"] != "vec3f":
+                    buffer.write(u64(0))
+        if self.command_groups:
+            buffer.write(u32(len(self.command_groups)))
+            offset = buffer.tell() + 4 * len(self.command_groups)
+            for group in self.command_groups:
+                buffer.write(u32(offset))
+                offset += 4 + len(group) * 4
+            for group in self.command_groups:
+                buffer.write(u32(len(group)))
+                for cmd in group:
+                    buffer.add_string(cmd)
+                    buffer.write(u32(buffer._string_refs[cmd]))
+        if self.local_blackboard_params:
+            index = 0
+            pos = 0
+            for t in type_param:
+                if t in self.local_blackboard_params:
+                    buffer.write(u16(len(self.local_blackboard_params[t])))
+                else:
+                    buffer.write(u16(0))
+                buffer.write(u16(index))
+                if t in self.local_blackboard_params:
+                    index += len(self.local_blackboard_params[t])
+                if t == "vec3f" and "vec3f" in self.local_blackboard_params:
+                    buffer.write(u16(pos))
+                    pos = pos + len(self.local_blackboard_params[t]) * 12
+                elif t in self.local_blackboard_params:
+                    buffer.write(u16(pos))
+                    pos = pos + len(self.local_blackboard_params[t]) * 4
+                else:
+                    buffer.write(u16(pos))
+                buffer.write(u16(0))
+            files = []
+            for t in self.local_blackboard_params:
+                for entry in self.local_blackboard_params[t]:
+                    buffer.add_string(entry["Name"])
+                    name_offset = buffer._string_refs[entry["Name"]]
+                    if "File Reference" in entry:
+                        if entry["File Reference"] not in files:
+                            files.append(entry["File Reference"])
+                        name_offset = name_offset | (1 << 31)
+                        name_offset = name_offset | (files.index(entry["File Reference"]) << 24)
+                    buffer.write(u32(name_offset))
+            start = buffer.tell()
+            size = 0
+            for t in self.local_blackboard_params:
+                for entry in self.local_blackboard_params[t]:
+                    if t == "int":
+                        buffer.write(u32(entry["Init Value"]))
+                        size += 4
+                    if t == "float":
+                        buffer.write(f32(entry["Init Value"]))
+                        size += 4
+                    if t == "bool":
+                        buffer.write(u32(int(entry["Init Value"])))
+                        size += 4
+                    if t == "vec3f":
+                        buffer.write(f32(entry["Init Value"][0]))
+                        buffer.write(f32(entry["Init Value"][1]))
+                        buffer.write(f32(entry["Init Value"][2]))
+                        size += 12
+                    if t == "string":
+                        buffer.add_string(entry["Init Value"])
+                        buffer.write(u32(buffer._string_refs[entry["Init Value"]]))
+                        size += 4
+            buffer.seek(start + size)
+            for file in files:
+                buffer.add_string(file["Filename"])
+                buffer.write(u32(buffer._string_refs[file["Filename"]]))
+                buffer.write(u32(mmh3.hash(file["Filename"], signed=False)))
+                buffer.write(u32(mmh3.hash(os.path.splitext(os.path.basename(file["Filename"]))[0], signed=False)))
+                buffer.write(u32(mmh3.hash(os.path.splitext(file["Filename"])[1].replace('.', ''), signed=False)))        
+        else:
+            buffer.skip(48)
+        for entry in self.slots:
+            buffer.write(u16(len(entry["Entries"])))
+            buffer.write(u16(entry["Unknown"]))
+            buffer.add_string(entry["Partial 1"])
+            buffer.add_string(entry["Partial 2"])
+            buffer.write(u32(buffer._string_refs[entry["Partial 1"]]))
+            buffer.write(u32(buffer._string_refs[entry["Partial 2"]]))
+            for slot in entry["Entries"]:
+                buffer.add_string(slot["Bone"])
+                buffer.write(u32(buffer._string_refs[slot["Bone"]]))
+                buffer.write(u16(slot["Unknown 1"]))
+                buffer.write(u16(slot["Unknown 2"]))
+        offset = buffer.tell() + 0x10 * len(self.bone_groups)
+        for group in self.bone_groups:
+            buffer.write(u32(offset))
+            offset += 8 * len(group["Bones"])
+            buffer.add_string(group["Name"])
+            buffer.write(u32(buffer._string_refs[group["Name"]]))
+            buffer.write(u32(len(group["Bones"])))
+            buffer.write(u32(group["Unknown"]))
+        for group in self.bone_groups:
+            for bone in group["Bones"]:
+                buffer.add_string(bone["Name"])
+                buffer.write(u32(buffer._string_refs[bone["Name"]]))
+                buffer.write(f32(bone["Unknown"]))
+        for entry in self.x40_section:
+            buffer.write(u32(entry["Unknown 1"]))
+            buffer.write(f32(entry["Angle"]))
+            buffer.write(u32(entry["Type"]))
+            buffer.write(f32(entry["Unknown 2"]))
+            buffer.write(f32(entry["Rate"]))
+            buffer.write(f32(entry["Unknown 3"]))
+            buffer.write(f32(entry["Min"]))
+            buffer.write(f32(entry["Max"]))
+        buffer.write(u32(len(self.tag_list)))
+        for tag in self.tag_list:
+            buffer.add_string(tag)
+            buffer.write(u32(buffer._string_refs[tag]))
+        for group in tag_groups:
+            buffer.write(u32(len(group)))
+            for tag in group:
+                buffer.add_string(tag)
+                buffer.write(u32(buffer._string_refs[tag]))  
+        buffer.seek(offsets["ASMarkings"])
+        buffer.write(u32(len(self.as_markings)))
+        for triplet in self.as_markings:
+            for string in triplet:
+                buffer.add_string(string)
+                buffer.write(u32(buffer._string_refs[string]))
+        buffer.write(u32(len(self.x68_section)))
+        for entry in self.x68_section:
+            buffer.add_string(entry["Name"])
+            buffer.write(u32(buffer._string_refs[entry["Name"]]))
+            buffer.write(f32(entry["Unknown"]))
+        buffer.write(u32(len(self.enum_resolve)))
+        for entry in self.enum_resolve:
+            buffer.write(u32(entry))
+            buffer.add_string(self.enum_resolve[entry]["Class Name"])
+            buffer.add_string(self.enum_resolve[entry]["Value Name"])
+            buffer.write(u32(buffer._string_refs[self.enum_resolve[entry]["Class Name"]]))
+            buffer.write(u32(buffer._string_refs[self.enum_resolve[entry]["Value Name"]]))
+        buffer.write(buffer._strings)
+        buffer.seek(0x50)
+        buffer.write(u32(len(buffer._strings)))
     
     def ToJson(self, output_dir=''):
         if output_dir:
