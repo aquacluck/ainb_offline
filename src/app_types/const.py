@@ -38,12 +38,12 @@ class TitleVersion(str):
     })
 
     ROOT_PACK_DIRS = ConstDottableDict({
-        NAMES.TOTK_100: ("AI", "Logic", "Sequence"),
-        NAMES.TOTK_110: ("AI", "Logic", "Sequence"),
-        NAMES.TOTK_111: ("AI", "Logic", "Sequence"),
-        NAMES.TOTK_112: ("AI", "Logic", "Sequence"),
-        NAMES.TOTK_120: ("AI", "Logic", "Sequence"),
-        NAMES.TOTK_121: ("AI", "Logic", "Sequence"),
+        NAMES.TOTK_100: ("AI", "AS", "Logic", "Sequence"),
+        NAMES.TOTK_110: ("AI", "AS", "Logic", "Sequence"),
+        NAMES.TOTK_111: ("AI", "AS", "Logic", "Sequence"),
+        NAMES.TOTK_112: ("AI", "AS", "Logic", "Sequence"),
+        NAMES.TOTK_120: ("AI", "AS", "Logic", "Sequence"),
+        NAMES.TOTK_121: ("AI", "AS", "Logic", "Sequence"),
         NAMES.WONDER_100: ("AI",),
         NAMES.WONDER_101: ("AI",),
     })

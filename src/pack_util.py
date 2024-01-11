@@ -1,3 +1,4 @@
+from collections import defaultdict
 import functools
 from typing import *
 import io
@@ -7,6 +8,9 @@ import sarc
 import zstandard as zstd
 
 from .app_types import *
+
+
+FileDataByExt = Dict["RomfsFileTypes", Dict[str, memoryview]]
 
 
 @functools.lru_cache
@@ -71,13 +75,14 @@ def load_all_files_from_pack(packname: str) -> Dict[str, memoryview]:
     return { fn: archive.get_file_data(fn) for fn in sorted(archive.list_files()) }
 
 
-def load_ext_files_from_pack(packname: str, extension: str) -> Dict[str, memoryview]:
+def load_ext_files_from_pack(packname: str, extensions: List["RomfsFileTypes"]) -> FileDataByExt:
+    out = defaultdict(dict)
     dctx = get_pack_decompression_ctx()
     archive = sarc.SARC(dctx.decompress(open(packname, "rb").read()))
-    return {
-        fn: archive.get_file_data(fn) for fn in
-        sorted(f for f in archive.list_files() if f.endswith(extension))
-    }
+    for f in sorted(archive.list_files()):
+        if e:= RomfsFileTypes.get_from_filename(f):
+            out[e][f] = archive.get_file_data(f)
+    return out
 
 
 def get_pack_internal_filenames(packname: str) -> List[str]:

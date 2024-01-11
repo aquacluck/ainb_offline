@@ -23,6 +23,20 @@ class ConstDottableStringSet(set):
 DpgTag = Union[int, str]
 
 
+RomfsFileTypes = ConstDottableStringSet({
+    "AINB",
+    "ASB",
+})
+def _get_romfsfiletype_from_filename(f: Union[str, pathlib.Path]) -> Optional["RomfsFileTypes"]:
+    f = str(f)
+    if f.endswith(".ainb"):
+        return RomfsFileTypes.AINB
+    if f.endswith(".asb") or f.endswith(".asb.zs"):
+        return RomfsFileTypes.ASB
+RomfsFileTypes.get_from_filename = _get_romfsfiletype_from_filename
+RomfsFileTypes.all = lambda: [str(t) for t in RomfsFileTypes]
+
+
 # Pending ui representation of node links gathered while rendering an ainb graph's nodes.
 # The nodes are visually linked up only after they're all rendered, dpg requires this.
 @dataclass
@@ -97,12 +111,12 @@ AppStaticTextureKeys = ConstDottableStringSet({
 })
 
 
-# This is how ainb files are usually located + identified
+# This is how files are usually located + identified
 @dataclass
 class PackIndexEntry:
     internalfile: str  # relative to packfile
     packfile: str  # romfs relative .pack.zs containing internalfile, or "Root"
-    extension: str  # filetype
+    extension: RomfsFileTypes
 
     def __post_init__(self):
         self.internalfile = self.fix_backslashes(self.internalfile)

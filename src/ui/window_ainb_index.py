@@ -30,6 +30,13 @@ class WindowAinbIndex:
                 EditContext.get().open_ainb_window(ainb_location)
             dpg.add_item_clicked_handler(callback=callback_open_ainb)
 
+        # Opening asb windows
+        with dpg.item_handler_registry(tag="asb_index_window_handler") as open_asb_handler:
+            def callback_open_asb(s, a, u):
+                textitem = a[1]
+                asb_location: PackIndexEntry = dpg.get_item_user_data(textitem)
+                EditContext.get().open_asb_window(asb_location)
+            dpg.add_item_clicked_handler(callback=callback_open_asb)
 
         # Quick search
         actor_pack_n = -1
@@ -38,16 +45,18 @@ class WindowAinbIndex:
                 # Exclude slowest chars for perf, although short substrings can still be invoked after commas.
                 # We have no control over how search is performed, eg no way to use a db without reimplementing filtering.
                 filter_string = ""
-            dpg.set_value(f"{self.tag}/Root/Filter", filter_string)
-            dpg.set_value(f"{self.tag}/Global/Filter", filter_string)
-            dpg.set_value(f"{self.tag}/PackActor/Filter", filter_string)
+            dpg.set_value(f"{self.tag}/ASB/Root/Filter", filter_string)
+            dpg.set_value(f"{self.tag}/AINB/Root/Filter", filter_string)
+            dpg.set_value(f"{self.tag}/AINB/Global/Filter", filter_string)
+            dpg.set_value(f"{self.tag}/AINB/PackActor/Filter", filter_string)
             for i in range(actor_pack_n):
-                dpg.set_value(f"{self.tag}/PackActor/{i}/Filter", filter_string)
+                dpg.set_value(f"{self.tag}/AINB/PackActor/{i}/Filter", filter_string)
         # filter eg `-ai/, -logic/, localmodule, load`: any positive terms pass (union), matching all (intersection) not needed
         filter_input = dpg.add_input_text(hint="any1, any2, -exclude (min 3 chars)", callback=callback_filter, parent=self.tag)
 
 
-        ainb_cache = get_pack_index_by_extension("ainb")
+        ainb_cache = get_pack_index_by_extension(RomfsFileTypes.AINB)
+        asb_cache = get_pack_index_by_extension(RomfsFileTypes.ASB)
         with dpg.tab_bar(parent=self.tag):
             # dpg.add_tab_button(label="[max]", callback=dpg.maximize_viewport)  # works at runtime, fails at init?
             # dpg.add_tab_button(label="wipe cache")
@@ -60,19 +69,19 @@ class WindowAinbIndex:
                 with dpg.child_window(autosize_x=True, autosize_y=True):
                     # TODO context menu -> re-crawl pack or ainb
                     with dpg.tree_node(label="Root", default_open=True):
-                        with dpg.filter_set(tag=f"{self.tag}/Root/Filter"):
+                        with dpg.filter_set(tag=f"{self.tag}/AINB/Root/Filter"):
                             cached_ainb_locations = ainb_cache.get("Root", {})
                             for ainbfile, ainb_location in cached_ainb_locations.items():
-                                item = dpg.add_text(ainb_location.internalfile, user_data=ainb_location, parent=f"{self.tag}/Root/Filter", filter_key=ainb_location.internalfile)
+                                item = dpg.add_text(ainb_location.internalfile, user_data=ainb_location, parent=f"{self.tag}/AINB/Root/Filter", filter_key=ainb_location.internalfile)
                                 dpg.bind_item_handler_registry(item, open_ainb_handler)
 
 
                     global_packfile = TitleVersion.get().ai_global_pack
                     with dpg.tree_node(label=global_packfile, default_open=True):
-                        with dpg.filter_set(tag=f"{self.tag}/Global/Filter"):
+                        with dpg.filter_set(tag=f"{self.tag}/AINB/Global/Filter"):
                             cached_ainb_locations = ainb_cache.get(global_packfile, {})
                             for ainbfile, ainb_location in cached_ainb_locations.items():
-                                item = dpg.add_text(ainb_location.internalfile, user_data=ainb_location, parent=f"{self.tag}/Global/Filter", filter_key=ainb_location.internalfile)
+                                item = dpg.add_text(ainb_location.internalfile, user_data=ainb_location, parent=f"{self.tag}/AINB/Global/Filter", filter_key=ainb_location.internalfile)
                                 dpg.bind_item_handler_registry(item, open_ainb_handler)
 
 
@@ -84,7 +93,7 @@ class WindowAinbIndex:
                     dpg.add_separator()
 
                     romfs = dpg.get_value(AppConfigKeys.ROMFS_PATH)
-                    with dpg.filter_set(tag=f"{self.tag}/PackActor/Filter"):
+                    with dpg.filter_set(tag=f"{self.tag}/AINB/PackActor/Filter"):
                         for packfile in sorted(pathlib.Path(f"{romfs}/Pack/Actor").rglob("*.pack.zs")):
                             # XXX why so paranoid about only showing existing packs? can't we just loop through cache excluding global+root?
                             romfs_relative: str = os.path.join(*packfile.parts[-3:])
@@ -104,8 +113,17 @@ class WindowAinbIndex:
                             filter_val = f"{packfile}:{{{filter_val}}}"
                             actor_pack_n += 1
                             with dpg.tree_node(label=label, default_open=(ainbcount <= 4), filter_key=filter_val):
-                                with dpg.filter_set(tag=f"{self.tag}/PackActor/{actor_pack_n}/Filter"):
+                                with dpg.filter_set(tag=f"{self.tag}/AINB/PackActor/{actor_pack_n}/Filter"):
                                     for ainbfile, ainb_location in cached_ainb_locations.items():
                                         item = dpg.add_text(ainb_location.internalfile, user_data=ainb_location, bullet=True, filter_key=ainb_location.fullfile)
                                         dpg.bind_item_handler_registry(item, open_ainb_handler)
 
+
+            with dpg.tab(label="All ASBs"):
+                with dpg.child_window(autosize_x=True, autosize_y=True):
+                    with dpg.tree_node(label="Root", default_open=True):
+                        with dpg.filter_set(tag=f"{self.tag}/ASB/Root/Filter"):
+                            cached_asb_locations = asb_cache.get("Root", {})
+                            for asbfile, asb_location in cached_asb_locations.items():
+                                item = dpg.add_text(asb_location.internalfile, user_data=asb_location, parent=f"{self.tag}/ASB/Root/Filter", filter_key=asb_location.internalfile)
+                                dpg.bind_item_handler_registry(item, open_asb_handler)

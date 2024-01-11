@@ -6,7 +6,7 @@ from typing import *
 import dearpygui.dearpygui as dpg
 
 from . import db, edit_context
-from .app_ainb_cache import build_ainb_index_for_unknown_files
+from .app_ainb_cache import build_indexes_for_unknown_files
 from .app_types import *
 from .ui.window_ainb_index import WindowAinbIndex
 from .ui.window_sql_shell import WindowSqlShell
@@ -70,7 +70,7 @@ def main():
 
 
     # Do any crawling/caching
-    build_ainb_index_for_unknown_files()
+    build_indexes_for_unknown_files()
 
 
     # Create edit context
@@ -93,18 +93,19 @@ def main():
 
 
     # Handle opening ainb from argv
-    use_ainbfile = sys.argv[-1] if str(sys.argv[-1]).endswith(".ainb") else None
-    if use_ainbfile:
+    arg_location = str(sys.argv[-1])
+    if extension := RomfsFileTypes.get_from_filename(arg_location):
         # Make path romfs-relative
-        use_ainbfile = use_ainbfile[len(romfs):].lstrip("/") if use_ainbfile.startswith(romfs) else use_ainbfile
+        if arg_location.startswith(romfs):
+            arg_location = arg_location[len(romfs):].lstrip("/")
         # Resolve "Pack/Name.pack.zs:AI/File.ainb" notation
-        use_ainbfile = use_ainbfile.split(":")
-        if len(use_ainbfile) == 2:
-            ainb_location = PackIndexEntry(internalfile=use_ainbfile[1], packfile=use_ainbfile[0], extension="ainb")
-        elif len(use_ainbfile) == 1:
-            ainb_location = PackIndexEntry(internalfile=use_ainbfile[0], packfile="Root", extension="ainb")
+        arg_location = arg_location.split(":")
+        if len(arg_location) == 2:
+            ainb_location = PackIndexEntry(internalfile=arg_location[1], packfile=arg_location[0], extension=extension)
+        elif len(arg_location) == 1:
+            ainb_location = PackIndexEntry(internalfile=arg_location[0], packfile="Root", extension=extension)
         else:
-            raise ValueError(f"Unparsable path {use_ainbfile}")
+            raise ValueError(f"Unparsable path {arg_location}")
         ectx.open_ainb_window(ainb_location)
 
 

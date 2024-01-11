@@ -113,7 +113,7 @@ class WindowAinbGraph:
 
         self.tag = dpg.add_window(
             label=window_label,
-            on_close=lambda: self.ectx.close_ainb_window(self.ainb.location),
+            on_close=lambda: self.ectx.close_file_window(self.ainb.location),
             **window_kwargs,
         )
         self.render_contents()
@@ -533,7 +533,7 @@ class AinbGraphEditorRenderHelpers:
                         #print(aref["Count"]) ...instance/link count? TODO
 
                         dest_ainbfile = aref["File Category"] + '/' + aref["File Path"]
-                        dest_location = scoped_pack_lookup(PackIndexEntry(internalfile=dest_ainbfile, packfile=node.editor.ainb.location.packfile, extension="ainb"))
+                        dest_location = scoped_pack_lookup(PackIndexEntry(internalfile=dest_ainbfile, packfile=node.editor.ainb.location.packfile, extension=RomfsFileTypes.AINB))
                         with dpg.group(horizontal=True):
                             dpg.add_text(f'@ ExternalAINB[{aref["File Category"]}] {aref["File Path"]}')
                             dpg.add_button(

@@ -18,7 +18,7 @@ class PackIndex:
             ) WITHOUT ROWID;"""]
 
     @classmethod
-    def get_all_entries_by_extension(cls, conn: sqlite3.Connection, ext: str) -> Dict[str, Dict[str, PackIndexEntry]]:
+    def get_all_entries_by_extension(cls, conn: sqlite3.Connection, ext: RomfsFileTypes) -> Dict[str, Dict[str, PackIndexEntry]]:
         # {"Pack/Actor/DgnObj_UrMom.pack.zs": {"internalfile1.ainb": PackIndexEntry, "internalfile2.ainb": PackIndexEntry}}
         # {"Root": {"Logic/OpeningField_1856.logic.root.ainb": PackIndexEntry}}
 
@@ -41,7 +41,7 @@ class PackIndex:
         return out
 
     @classmethod
-    def persist_one_pack_one_extension(cls, conn: sqlite3.Connection, packfile: str, extension: str,  internalfiles: List[str]):
+    def persist_one_pack_one_extension(cls, conn: sqlite3.Connection, packfile: str, extension: RomfsFileTypes,  internalfiles: List[str]):
         # packfile and extension must match across all internalfiles
         internal_filename_csv = ",".join([PackIndexEntry.fix_backslashes(f) for f in internalfiles])
         conn.execute(f"""

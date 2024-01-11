@@ -30,7 +30,6 @@ class EditContext:
             # Ignore request and just raise existing window
             dpg.focus_item(window.tag)
             return
-
         from .ui.window_ainb_graph import WindowAinbGraph  # XXX
         window = WindowAinbGraph(ainb_location, self)
         i = len(self.open_windows)
@@ -38,8 +37,11 @@ class EditContext:
         window.create(width=1280, height=1080, pos=pos)
         self.open_windows[ainb_location.fullfile] = window
 
-    def close_ainb_window(self, ainb_location: PackIndexEntry) -> None:
-        del self.open_windows[ainb_location.fullfile]
+    def open_asb_window(self, asb_location: PackIndexEntry) -> None:
+        print(asb_location)
+
+    def close_file_window(self, location: PackIndexEntry) -> None:
+        del self.open_windows[location.fullfile]
 
     def load_ainb(self, ainb_location: PackIndexEntry) -> MutableAinb:
         # Resolve through modfs, modfs packs, ...
