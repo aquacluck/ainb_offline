@@ -43,6 +43,16 @@ class MutableAsbCommand:
         return cmd
 
 
+class MutableAsbTransition:
+    @classmethod
+    def from_ref(cls, i: int, j: int, json: dict) -> MutableAsbTransition:
+        trans = cls()
+        trans.json = json
+        trans.section_i = i
+        trans.section_j = j
+        return trans
+
+
 class MutableAsbNode:
     @classmethod
     def from_ref(cls, json: dict) -> MutableAsbNode:
@@ -78,7 +88,7 @@ class MutableAsbNodeParam:
 
     @property
     def param_default_name(self) -> str:
-        return "Default Value" if self.param_section_name == ParamSectionName.GLOBAL else "Value"
+        return "Init Value"
 
     @property
     def name(self) -> str:
@@ -169,7 +179,7 @@ class AsbEditOperationExecutor:
         def execute(asb: MutableAsb, edit_op: AsbEditOperation):
             #print(f"param default = {edit_op.op_value} @ {edit_op.op_selector}")
             sel = edit_op.op_selector
-            if len(sel) != 6 or sel[0] != "Nodes" or sel[-1] not in ("Value", "Default Value"):
+            if len(sel) != 6 or sel[0] != "Nodes" or sel[-1] not in ("Init Value", "Default Value"):
                 raise AssertionError(f"Cannot parse selector {sel}")
 
             # The path is guaranteed to exist for this case, so no missing parts

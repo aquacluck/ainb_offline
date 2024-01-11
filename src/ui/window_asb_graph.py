@@ -10,7 +10,7 @@ import orjson
 
 from ..app_ainb_cache import scoped_pack_lookup
 from ..edit_context import EditContext
-from ..mutable_asb import MutableAsb, MutableAsbNodeParam
+from ..mutable_asb import MutableAsb, MutableAsbNodeParam, MutableAsbTransition
 from .. import db, pack_util
 from ..app_types import *
 
@@ -196,7 +196,7 @@ class AsbGraphEditor:
             dpg.delete_item(app_data)
 
         # TODO top bar, might replace tabs?
-        # - "jump to" node list dropdown
+        # - "jump to" node list dropdown, command dropdown, transition dropdown, ...
         # - dirty indicators
         # - "{}" json button?
         with dpg.group(tag=f"{self.tag}/toolbar", horizontal=True, parent=self.parent):
@@ -212,7 +212,19 @@ class AsbGraphEditor:
             minimap_location=dpg.mvNodeMiniMap_Location_BottomRight
         )
 
+        self.preprocess_transitions()
         self.render_asb_nodes()
+
+    def preprocess_transitions(self):
+        self.command_to_transition_membership: Dict[str, List[MutableAsbTransition]] = defaultdict(list)
+        aj = self.asb.json  # asb json. we still call him aj
+        for (i, tsection) in enumerate(aj.get("Transitions", [])):
+            assert tsection["Unknown"] == -1  # what is this and why are we in sections
+            for j, transition in enumerate(tsection.get("Transitions", [])):
+                trans = MutableAsbTransition.from_ref(i, j, transition)
+                # XXX assuming "" means any?
+                self.command_to_transition_membership[trans.json["Command 1"]].append(trans)
+                self.command_to_transition_membership[trans.json["Command 2"]].append(trans)
 
     def render_asb_nodes(self):
         aj = self.asb.json  # asb json. we still call him aj
@@ -391,11 +403,37 @@ class AsbGraphEditorRenderHelpers:
                 if node.node_i == command["Left Node Index"]:
                     cmd_name = command["Name"]
                     dpg.add_text(f"@ Command[{cmd_name}]")
+                    for aj_flag in command.get("Tags", []):
+                        dpg.add_text(f"@ {aj_flag}")
+
+                    transitions_by_name = node.editor.command_to_transition_membership[cmd_name]
+                    transitions_wildcard = node.editor.command_to_transition_membership[""]
+                    transitions_count = len(transitions_by_name) + len(transitions_wildcard)
+                    if transitions_count:
+                        transitions_items = [f"Transitions [{transitions_count}]"]
+                        if transitions_by_name:
+                            transitions_items.append(f"[{len(transitions_by_name)} Named]")
+                            for t in transitions_by_name:
+                                tj = t.json
+                                exclusive = "Exclusive, " if tj["Allow Multiple Matches"] == False else ""
+                                tstr = f"{tj['Command 1'] or '*'} -> {tj['Command 2'] or '*'} ({exclusive}SetParam {tj['Parameter']}={tj['Value']})"
+                                transitions_items.append(tstr)
+                        if transitions_wildcard:
+                            transitions_items.append(f"[{len(transitions_wildcard)} Wildcard]")
+                            for t in transitions_wildcard:
+                                tj = t.json
+                                # FIXME named are duplicated in this section. continue+decrement if tj["Command 1 or 2"] == cmd_name?
+                                # FIXME * -> * are duplicated. sets of id()s? idk not hard
+                                exclusive = "Exclusive, " if tj["Allow Multiple Matches"] == False else ""
+                                tstr = f"{tj['Command 1'] or '*'} -> {tj['Command 2'] or '*'} ({exclusive}SetParam {tj['Parameter']}={tj['Value']})"
+                                transitions_items.append(tstr)
+                        dpg.add_combo(items=transitions_items, default_value=transitions_items[0], width=300)
+
                     command_node_theme = make_node_theme_for_hue(AppStyleColors.GRAPH_COMMAND_HUE)
                     dpg.bind_item_theme(f"{node.tag}/Node", command_node_theme)
 
 
-            for aj_flag in node.node_json.get("Flags", []):
+            for aj_flag in node.node_json.get("Tags", []):
                 dpg.add_text(f"@ {aj_flag}")
 
             dpg.add_text("TODO LOL")
