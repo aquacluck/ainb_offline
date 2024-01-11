@@ -48,7 +48,7 @@ class DeferredNodeLinkCall:
     parent: DpgTag
 
 
-# These represent mutations for the AINB.output_dict json dict
+# These represent mutations for the dt_tools.ainb.AINB.output_dict json dict
 AinbEditOperationTypes = ConstDottableStringSet({
     "ADD_NODE",  # Use `op_value: dict` as node json, executor assigns the Node Index
     "REPLACE_JSON",  # Overwrite entire ainb with `op_value: str` json
@@ -56,7 +56,16 @@ AinbEditOperationTypes = ConstDottableStringSet({
 })
 
 
+# These represent mutations for the dt_tools.asb.ASB.output_dict json dict
+AsbEditOperationTypes = ConstDottableStringSet({
+    "ADD_NODE",  # Use `op_value: dict` as node json, executor assigns the Node Index
+    "REPLACE_JSON",  # Overwrite entire asb with `op_value: str` json
+    "PARAM_UPDATE_DEFAULT",  # Set the "Value" to op_value for a param found with op_selector
+})
+
+
 AinbEditOperationDefaultValueSelector = Tuple[Union[str, int]]  # TODO better typing
+AsbEditOperationDefaultValueSelector = Tuple[Union[str, int]]  # TODO better typing
 
 
 @dataclass
@@ -64,6 +73,15 @@ class AinbEditOperation:
     op_type: AinbEditOperationTypes
     op_value: Any
     op_selector: Union[AinbEditOperationDefaultValueSelector] = None
+    when: datetime = field(default_factory=datetime.now)
+    filehash = None  # TODO this should be set on certain persist+export events
+
+
+@dataclass
+class AsbEditOperation:
+    op_type: AsbEditOperationTypes
+    op_value: Any
+    op_selector: Union[AsbEditOperationDefaultValueSelector] = None
     when: datetime = field(default_factory=datetime.now)
     filehash = None  # TODO this should be set on certain persist+export events
 

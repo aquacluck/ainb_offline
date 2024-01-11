@@ -135,7 +135,7 @@ class WindowAinbGraph:
 
         # Send event to edit ctx
         edit_op = AinbEditOperation(op_type=AinbEditOperationTypes.REPLACE_JSON, op_value=user_json_str)
-        self.ectx.perform_new_edit_operation(self.ainb, edit_op)
+        self.ectx.perform_new_ainb_edit_operation(self.ainb, edit_op)
 
         # Re-render editor TODO this belongs in AinbGraphEditor?
         dpg.delete_item(self.node_editor)

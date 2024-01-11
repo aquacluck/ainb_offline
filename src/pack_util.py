@@ -37,6 +37,19 @@ def get_pack_decompression_ctx() -> zstd.ZstdDecompressor:
 
 
 @functools.lru_cache
+def get_file_decompression_ctx() -> zstd.ZstdDecompressor:
+    # For loose non-bcett files, unrelated to packs really
+    zs_zsdic = get_zsdics().get("zs.zsdic")
+    return get_zstd_decompression_ctx(dict_data=zs_zsdic)
+
+
+@functools.lru_cache
+def get_file_compression_ctx() -> zstd.ZstdCompressor:
+    pack_zsdic = get_zsdics().get("zs.zsdic")
+    return zstd.ZstdCompressor(level=10, dict_data=pack_zsdic)
+
+
+@functools.lru_cache
 def get_pack_compression_ctx() -> zstd.ZstdCompressor:
     pack_zsdic = get_zsdics().get("pack.zsdic")
     return zstd.ZstdCompressor(level=10, dict_data=pack_zsdic)
@@ -60,6 +73,24 @@ def save_file_to_pack(packfile: str, internalfile: str, internaldata: io.BytesIO
     if len(data) < 256:  # arbitrary
         raise Exception(f"Refusing to overwrite {packfile} with only {len(data)}B compressed")
     with open(packfile, "wb") as out:
+        out.write(data)
+
+
+def load_compressed_file(filename: str) -> memoryview:
+    # Not pack related at all lol
+    dctx = get_file_decompression_ctx()
+    return memoryview(dctx.decompress(open(filename, "rb").read()))
+
+
+def save_compressed_file(filename: str, data: io.BytesIO) -> None:
+    # Not pack related at all lol
+    # Compress and save
+    cctx = get_file_compression_ctx()
+    data = cctx.compress(data.getvalue())
+    # TODO better sanity check?
+    if len(data) < 256:  # arbitrary
+        raise Exception(f"Refusing to overwrite {filename} with only {len(data)}B compressed")
+    with open(filename, "wb") as out:
         out.write(data)
 
 
