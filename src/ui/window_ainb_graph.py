@@ -377,7 +377,7 @@ class AinbGraphEditor:
                 }
                 # XXX ideally plumb in ectx, or send this up through the editor?
                 edit_op = AinbEditOperation(op_type=AinbEditOperationTypes.ADD_NODE, op_value=data)
-                EditContext.get().perform_new_edit_operation(self.ainb, edit_op)
+                EditContext.get().perform_new_ainb_edit_operation(self.ainb, edit_op)
 
                 # Re-render editor TODO this belongs in AinbGraphEditor?
                 dpg.delete_item(self.tag)
@@ -706,7 +706,7 @@ class AinbGraphEditorRenderHelpers:
         def on_edit(sender, data, op_selector):
             # XXX ideally plumb in ectx, or send this up through the editor?
             edit_op = AinbEditOperation(op_type=AinbEditOperationTypes.PARAM_UPDATE_DEFAULT, op_value=data, op_selector=op_selector)
-            EditContext.get().perform_new_edit_operation(node.editor.ainb, edit_op)
+            EditContext.get().perform_new_ainb_edit_operation(node.editor.ainb, edit_op)
 
         node_attr_tag_ns = f"{node.tag}/Params/{param.param_section_name}/{param.name}"
         ui_input_tag = f"{node_attr_tag_ns}/ui_input"
