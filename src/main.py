@@ -106,7 +106,10 @@ def main():
             ainb_location = PackIndexEntry(internalfile=arg_location[0], packfile="Root", extension=extension)
         else:
             raise ValueError(f"Unparsable path {arg_location}")
-        ectx.open_ainb_window(ainb_location)
+
+        # FIXME this hangs due to the split_frame in AinbGraphLayout.finalize()
+        # Maybe move into maximize_viewport callback?
+        # ectx.open_ainb_window(ainb_location)
 
 
     dpg.set_primary_window(primary_window, True)

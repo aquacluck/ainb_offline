@@ -6,6 +6,7 @@ from typing import *
 from collections import defaultdict
 
 import dearpygui.dearpygui as dpg
+import graphviz
 import orjson
 
 from ..app_ainb_cache import scoped_pack_lookup
@@ -84,6 +85,107 @@ def make_node_theme_for_hue(hue: AppColor) -> DpgTag:
             dpg.add_theme_color(dpg.mvNodeCol_NodeBackgroundHovered, hue.set_hsv(s=0.1, v=0.35).to_rgb24(), category=dpg.mvThemeCat_Nodes)
             dpg.add_theme_color(dpg.mvNodeCol_NodeBackgroundSelected, hue.set_hsv(s=0.1, v=0.35).to_rgb24(), category=dpg.mvThemeCat_Nodes)
     return theme
+
+
+class AinbGraphLayout:
+    layout_data: dict = None
+    inflight_dot: graphviz.Digraph = None
+    inflight_nodes: dict = None
+    location: PackIndexEntry = None
+
+    @property
+    def has_layout(self) -> bool:
+        return self.layout_data is not None
+
+    @classmethod
+    def try_get_cached_layout(cls, location: PackIndexEntry) -> "AinbGraphLayout":
+        # if layout_data := db.TODOLayoutCache.get_by_fullfile(location.fullfile):
+        #     return cls(location, layout_data)
+        return cls(location)
+
+    def __init__(self, location: PackIndexEntry, layout_data: dict = None):
+        self.location = location
+        self.layout_data = layout_data
+        if not self.has_layout:
+            # begin building new layout
+            self.inflight_nodes ={}
+            self.inflight_dot = graphviz.Digraph(
+                "hi", #data["Info"]["Filename"],
+                graph_attr={"rankdir": "LR"},
+                node_attr={"fontsize": "16", "fixedsize": "true", "shape": "box"}
+            )
+
+    def maybe_dot_node(self, i: int, node_tag: DpgTag):
+        if self.has_layout:
+            return
+        self.inflight_nodes[i] = node_tag
+
+    def maybe_dot_edge(self, src_i: int, dst_i: int):
+        if self.has_layout:
+            return
+        self.inflight_dot.edge(str(src_i), str(dst_i))
+
+    def finalize(self):
+        if self.has_layout:
+            return
+
+        dpg.split_frame(delay=10)  # ms
+
+        # Defer maybe_dot_node operations until here
+        for node_i, tag in self.inflight_nodes.items():
+            # FIXME adjustments
+            # from random import randrange
+            # w = str(randrange(3) * 0.3 + 1.5)
+            # h = str(randrange(8) * 0.3 + 1.2)
+
+            w, h = dpg.get_item_state(tag)["rect_size"]
+            # print(w, h)
+            w = str(w *10)
+            h = str(h *10)
+            print(w, h)
+            self.inflight_dot.attr("node", width=w, height=h)
+            self.inflight_dot.node(str(node_i), str(node_i))
+
+        graphdump = orjson.loads(self.inflight_dot.pipe("json"))
+        #pp(graphdump)
+        #breakpoint()
+        out = {}
+        for obj in graphdump.get("objects", []):
+            #print(f'{obj["name"]} {obj["pos"]}')
+            node_index = int(obj["name"])
+            x, y = obj["pos"].split(",")
+            x, y = int(float(x)), int(float(y))
+            x, y = x * 5, y * 5  # XXX
+            out[node_index] = x, y
+        from pprint import pp; pp(out)
+
+        # FIXME adjustments
+        self.layout_data = out
+
+        # TODO persist layout
+
+        # persist svg
+        if _do_svg_persist := True:
+            appvar = dpg.get_value(AppConfigKeys.APPVAR_PATH)
+            title_version = dpg.get_value(AppConfigKeys.TITLE_VERSION)
+            svgfile = self.location.internalfile+".svg"
+            svgfile = f"{appvar}/{title_version}/svgtmp/{svgfile}"
+            pathlib.Path(svgfile).parent.mkdir(parents=True, exist_ok=True)
+            self.inflight_dot.render(outfile=svgfile, format="svg", cleanup=True)
+            print(f"\n(also wrote {svgfile})")
+
+        self.inflight_dot = None
+        self.inflight_nodes = None
+
+    def get_node_indexes_with_layout(self) -> List[int]:
+        if not self.has_layout:
+            return []
+        return list(self.layout_data.keys())
+
+    def get_node_coordinates(self, i: int, default=(0, 0)) -> Tuple[int, int]:
+        if not self.has_layout:
+            return default
+        return self.layout_data.get(i, default)
 
 
 class WindowAinbGraph:
@@ -204,6 +306,7 @@ class AinbGraphEditor:
     def set_ainb(self, ainb: MutableAinb) -> None:
         self.ainb = ainb
         # TODO clear contents?
+        self.layout = AinbGraphLayout.try_get_cached_layout(self.ainb.location)
         self.render_contents()
 
     @property
@@ -361,6 +464,8 @@ class AinbGraphEditor:
         self.render_links_and_layout(deferred_link_calls)
 
     def render_links_and_layout(self, link_calls: List[DeferredNodeLinkCall]):
+        self.layout.finalize()
+
         # Add links
         node_i_links = defaultdict(set)
         for link in link_calls:
@@ -368,6 +473,19 @@ class AinbGraphEditor:
             # breakpoint()
             dpg.add_node_link(link.src_attr, link.dst_attr, parent=link.parent)
             node_i_links[link.src_node_i].add(link.dst_node_i)
+
+        if _use_layout := True:
+            for node_i in self.layout.get_node_indexes_with_layout():
+                node_tag = f"{self.tag}/node{node_i}/Node"
+                pos = self.layout.get_node_coordinates(node_i)
+                print(node_tag, pos)
+                dpg.set_item_pos(node_tag, pos)
+
+            return  # no stinky
+
+        #
+        # XXX STINKY OLD LAYOUT XXX
+        #
 
         # For panning to commands on open
         NamedCoordDict = Dict[str, Tuple[int, int]]
@@ -482,6 +600,11 @@ class AinbGraphEditorNode:
                         print(f"Unsupported link type {aj_link_type}")
                         breakpoint()
                         continue
+
+        # Accumulate graphviz operations
+        self.editor.layout.maybe_dot_node(self.node_i, f"{self.tag}/Node")
+        for link in output_attr_links:
+            self.editor.layout.maybe_dot_edge(link.src_node_i, link.dst_node_i)
 
         return output_attr_links
 
