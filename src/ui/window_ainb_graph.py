@@ -835,7 +835,6 @@ class AinbGraphEditorRenderHelpers:
 
         with dpg.node_attribute(tag=my_attr_tag, attribute_type=dpg.mvNode_Attr_Output):
             flags = aj_link["Update Info"]["Flags"]
-            flags = "|".join((" ".join(flags)).split())  # bad ainb parse?
             label = f"[ResUpdate] ({flags})" if flags else "[ResUpdate]"
             dpg.add_text(label)
 
