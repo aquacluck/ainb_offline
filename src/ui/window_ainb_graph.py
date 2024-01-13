@@ -6,7 +6,7 @@ from typing import *
 from collections import defaultdict
 
 import dearpygui.dearpygui as dpg
-import graphviz
+# deferred import graphviz
 import orjson
 
 from ..app_ainb_cache import scoped_pack_lookup
@@ -89,13 +89,23 @@ def make_node_theme_for_hue(hue: AppColor) -> DpgTag:
 
 class AinbGraphLayout:
     layout_data: dict = None
-    inflight_dot: graphviz.Digraph = None
+    inflight_dot: "graphviz.Digraph" = None
     inflight_nodes: dict = None
     location: PackIndexEntry = None
+    insist_stinky: bool = False  # use old layout
 
     @property
     def has_layout(self) -> bool:
         return self.layout_data is not None
+
+    @staticmethod
+    @functools.cache
+    def is_graphviz_enabled() -> bool:
+        try:
+            import graphviz
+            return True
+        except ImportError:
+            return False
 
     @classmethod
     def try_get_cached_layout(cls, location: PackIndexEntry) -> "AinbGraphLayout":
@@ -106,8 +116,9 @@ class AinbGraphLayout:
     def __init__(self, location: PackIndexEntry, layout_data: dict = None):
         self.location = location
         self.layout_data = layout_data
-        if not self.has_layout:
+        if not self.has_layout and self.is_graphviz_enabled():
             # begin building new layout
+            import graphviz
             self.inflight_nodes ={}
             self.inflight_dot = graphviz.Digraph(
                 "hi", #data["Info"]["Filename"],
@@ -116,17 +127,17 @@ class AinbGraphLayout:
             )
 
     def maybe_dot_node(self, i: int, node_tag: DpgTag):
-        if self.has_layout:
+        if self.has_layout or not self.is_graphviz_enabled():
             return
         self.inflight_nodes[i] = node_tag
 
     def maybe_dot_edge(self, src_i: int, dst_i: int):
-        if self.has_layout:
+        if self.has_layout or not self.is_graphviz_enabled():
             return
         self.inflight_dot.edge(str(src_i), str(dst_i))
 
     def finalize(self):
-        if self.has_layout:
+        if self.has_layout or not self.is_graphviz_enabled():
             return
 
         dpg.split_frame(delay=10)  # ms
@@ -424,8 +435,15 @@ class AinbGraphEditor:
         # - "jump to" node list dropdown
         # - dirty indicators
         # - "{}" json button?
+        def rerender_stinky():
+            self.layout.insist_stinky = not self.layout.insist_stinky
+            # Re-render editor TODO this belongs in AinbGraphEditor?
+            dpg.delete_item(self.tag)
+            dpg.delete_item(f"{self.tag}/toolbar")
+            self.render_contents()
         with dpg.group(tag=f"{self.tag}/toolbar", horizontal=True, parent=self.parent):
             dpg.add_button(label=f"Add Node", callback=self.begin_add_node)
+            dpg.add_button(label=f"Stinky {self.layout.insist_stinky}", callback=rerender_stinky)
 
         # Main graph ui + rendering nodes
         dpg.add_node_editor(
@@ -474,7 +492,7 @@ class AinbGraphEditor:
             dpg.add_node_link(link.src_attr, link.dst_attr, parent=link.parent)
             node_i_links[link.src_node_i].add(link.dst_node_i)
 
-        if _use_layout := True:
+        if self.layout.is_graphviz_enabled() and not self.layout.insist_stinky:
             for node_i in self.layout.get_node_indexes_with_layout():
                 node_tag = f"{self.tag}/node{node_i}/Node"
                 pos = self.layout.get_node_coordinates(node_i)
