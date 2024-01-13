@@ -140,40 +140,26 @@ class AinbGraphLayout:
         if self.has_layout or not self.is_graphviz_enabled():
             return
 
-        dpg.split_frame(delay=10)  # ms
+        dpg.split_frame(delay=10)  # wait for ms, so we can see rendered node dimensions
 
         # Defer maybe_dot_node operations until here
         for node_i, tag in self.inflight_nodes.items():
-            # FIXME adjustments
-            # from random import randrange
-            # w = str(randrange(3) * 0.3 + 1.5)
-            # h = str(randrange(8) * 0.3 + 1.2)
-
             w, h = dpg.get_item_state(tag)["rect_size"]
+            w = str(w / 50)
+            h = str(h / 50)
             # print(w, h)
-            w = str(w *10)
-            h = str(h *10)
-            print(w, h)
-            self.inflight_dot.attr("node", width=w, height=h)
-            self.inflight_dot.node(str(node_i), str(node_i))
+            self.inflight_dot.node(str(node_i), label=str(node_i), width=w, height=h)
 
         graphdump = orjson.loads(self.inflight_dot.pipe("json"))
-        #pp(graphdump)
-        #breakpoint()
         out = {}
         for obj in graphdump.get("objects", []):
-            #print(f'{obj["name"]} {obj["pos"]}')
             node_index = int(obj["name"])
             x, y = obj["pos"].split(",")
             x, y = int(float(x)), int(float(y))
-            x, y = x * 5, y * 5  # XXX
             out[node_index] = x, y
-        from pprint import pp; pp(out)
 
-        # FIXME adjustments
+        # TODO persist layout? this is faster than I expected though
         self.layout_data = out
-
-        # TODO persist layout
 
         # persist svg
         if _do_svg_persist := True:
@@ -183,7 +169,7 @@ class AinbGraphLayout:
             svgfile = f"{appvar}/{title_version}/svgtmp/{svgfile}"
             pathlib.Path(svgfile).parent.mkdir(parents=True, exist_ok=True)
             self.inflight_dot.render(outfile=svgfile, format="svg", cleanup=True)
-            print(f"\n(also wrote {svgfile})")
+            print(f"Wrote {svgfile}")
 
         self.inflight_dot = None
         self.inflight_nodes = None
@@ -496,7 +482,7 @@ class AinbGraphEditor:
             for node_i in self.layout.get_node_indexes_with_layout():
                 node_tag = f"{self.tag}/node{node_i}/Node"
                 pos = self.layout.get_node_coordinates(node_i)
-                print(node_tag, pos)
+                # print(node_tag, pos)
                 dpg.set_item_pos(node_tag, pos)
 
             return  # no stinky
