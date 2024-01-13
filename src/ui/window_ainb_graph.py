@@ -140,7 +140,7 @@ class AinbGraphLayout:
         if self.has_layout or not self.is_graphviz_enabled():
             return
 
-        dpg.split_frame(delay=10)  # wait for ms, so we can see rendered node dimensions
+        dpg.split_frame(delay=10)  # ms to wait, so we can see rendered node dimensions
 
         # Defer maybe_dot_node operations until here
         for node_i, tag in self.inflight_nodes.items():
@@ -155,7 +155,7 @@ class AinbGraphLayout:
         for obj in graphdump.get("objects", []):
             node_index = int(obj["name"])
             x, y = obj["pos"].split(",")
-            x, y = int(float(x)), int(float(y))
+            x, y = int(float(x)), -1 * int(float(y))
             out[node_index] = x, y
 
         # TODO persist layout? this is faster than I expected though
@@ -169,7 +169,7 @@ class AinbGraphLayout:
             svgfile = f"{appvar}/{title_version}/svgtmp/{svgfile}"
             pathlib.Path(svgfile).parent.mkdir(parents=True, exist_ok=True)
             self.inflight_dot.render(outfile=svgfile, format="svg", cleanup=True)
-            print(f"Wrote {svgfile}")
+            #print(f"Debug graphviz layout {svgfile}")
 
         self.inflight_dot = None
         self.inflight_nodes = None
