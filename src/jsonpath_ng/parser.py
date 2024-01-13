@@ -2,11 +2,11 @@ import logging
 import sys
 import os.path
 
-import ply.yacc
+from .ply.yacc import yacc
 
-from jsonpath_ng.exceptions import JsonPathParserError
-from jsonpath_ng.jsonpath import *
-from jsonpath_ng.lexer import JsonPathLexer
+from .exceptions import JsonPathParserError
+from .jsonpath import *
+from .lexer import JsonPathLexer
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +51,7 @@ class JsonPathParser:
 
         # And we regenerate the parse table every time;
         # it doesn't actually take that long!
-        new_parser = ply.yacc.yacc(module=self,
+        new_parser = yacc(module=self,
                                    debug=self.debug,
                                    tabmodule = parsing_table_module,
                                    outputdir = output_directory,

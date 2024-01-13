@@ -1,9 +1,9 @@
 import sys
 import logging
 
-import ply.lex
+from .ply.lex import lex
 
-from jsonpath_ng.exceptions import JsonPathLexerError
+from .exceptions import JsonPathLexerError
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +23,7 @@ class JsonPathLexer:
         Maps a string to an iterator over tokens. In other words: [char] -> [token]
         '''
 
-        new_lexer = ply.lex.lex(module=self, debug=self.debug, errorlog=logger)
+        new_lexer = lex(module=self, debug=self.debug, errorlog=logger)
         new_lexer.latest_newline = 0
         new_lexer.string_value = None
         new_lexer.input(string)

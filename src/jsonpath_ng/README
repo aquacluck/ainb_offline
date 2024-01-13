@@ -1,2 +1,5 @@
 https://github.com/h2non/jsonpath-ng/tree/v1.6.1/jsonpath_ng 2b50a1b674a3241cf336c4465372d0e4b6c2f18d
 cpython 3.7 - 3.12
+
+Changes (see the blame):
+- relative imports
