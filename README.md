@@ -5,13 +5,14 @@ Folders we use:
 
 
 Usage + dependencies:
+- Installing both the graphviz bindings from pip and Graphviz itself from https://graphviz.org/download/ is recommended for acceptable graph layout.
 ```sh
 # Quick start with default paths in repo: ROMFS=./romfs, APPVAR=./var, OUTPUT_MODFS=./var/modfs
-pip install dearpygui mmh3 pyyaml byml sarc zstandard
+pip install dearpygui mmh3 pyyaml byml sarc zstandard graphviz
 python ainb_offline.py
 
 # Or specify paths, eg write to emulator mod path
-pip install dearpygui mmh3 pyyaml byml sarc zstandard orjson
+pip install dearpygui mmh3 pyyaml byml sarc zstandard orjson graphviz
 ROMFS=~/totk100/romfs APPVAR=~/totk100/appcache OUTPUT_MODFS=~/appdata/Ryujinx/sdcard/atmosphere/contents/0100f2c0115b6000/romfs python ainb_offline.py
 
 # Open given ainb, including any changes from modfs
@@ -32,7 +33,6 @@ Major limitations + known issues:
 - Missing: add/remove params, add/remove nodes, add/remove links
 - Missing: attachments, all things exb
 - Many links may be missing or wrong. This is a display issue, it doesn't affect serialization
-- Many nodes don't get proper layout on the graph, and layout is generally bad. Purely visual
 - Some files may crash, usually due to layout hitting a loop
 
 

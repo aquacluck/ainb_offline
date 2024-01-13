@@ -13,13 +13,17 @@ from .dt_tools.asb import ASB
 # XXX deferred from .ui.window_asb_graph import WindowAsbGraph
 from . import pack_util
 
-active_ectx = None  # initialized in main
+
+GLOBAL_INSTANCE = None
 
 class EditContext:
-    @staticmethod
-    def get():  # singleton or something, the whole app gets it this way
-        global active_ectx
-        return active_ectx
+    @classmethod
+    def get(cls) -> "EditContext":
+        # singleton or something, the whole app gets it this way
+        global GLOBAL_INSTANCE
+        if not GLOBAL_INSTANCE:
+            GLOBAL_INSTANCE = cls()
+        return GLOBAL_INSTANCE
 
     def __init__(self):
         self.romfs = dpg.get_value(AppConfigKeys.ROMFS_PATH)
