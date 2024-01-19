@@ -8,7 +8,7 @@ Usage + dependencies:
 - Installing both the graphviz bindings from pip and Graphviz itself from https://graphviz.org/download/ is recommended for acceptable graph layout.
 ```sh
 # Quick start with default paths in repo: ROMFS=./romfs, APPVAR=./var, OUTPUT_MODFS=./var/modfs
-pip install dearpygui mmh3 pyyaml byml sarc zstandard graphviz
+pip install dearpygui mmh3 pyyaml byml sarc zstandard orjson graphviz
 python ainb_offline.py
 
 # Or specify paths, eg write to emulator mod path

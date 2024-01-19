@@ -2,6 +2,7 @@ from typing import *
 from dataclasses import dataclass
 
 import dearpygui.dearpygui as dpg
+from .. import curio
 
 from ..app_types import *
 from .. import db
@@ -19,9 +20,12 @@ class WindowSqlShell:
     LIMIT_HISTORY = 20
 
     @classmethod
-    def create_anon_oneshot(cls, immediate_query: str = None) -> None:
+    async def create_as_coro(cls, immediate_query: str = None, dpg_args=()) -> None:
         window = cls()
         window.create(immediate_query)
+        while True:
+            # we own+supervise this instance and its ui
+            await curio.sleep(69)
 
     def __init__(self):
         self.query_history: List[QueryHistoryEntry] = []

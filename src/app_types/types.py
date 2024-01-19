@@ -1,3 +1,4 @@
+from __future__ import annotations
 import colorsys
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -21,6 +22,40 @@ class ConstDottableStringSet(set):
 # aware of which we have when constructing nested aliases, and eg sender args can introduce ints.
 # Use dpg.get_item_alias(id) to normalize.
 DpgTag = Union[int, str]
+
+
+# dpg callbacks cannot await to spawn window coros etc (dpg is all sync), but we can intercept these requests in our main loop to do whatever we want.
+# This sucks but the lack of async lambdas is too punishing with dpg callbacks.
+class CallbackReq:
+    """
+    async def some_work(): pass
+
+    dpg.add_button(callback=CallbackReq.SpawnCoro(some_work))
+    # is piped into:
+    await curio.spawn(some_work())
+
+    # we could make another request type just await idk:
+    dpg.add_button(callback=CallbackReq.AwaitCoro(some_work, [], {"quiet": True}))
+    # is piped into:
+    await some_work(dpg_args=(s,a,u), quiet=True)
+
+    callbacks may return another callback to be immediately dispatched, which I use to handle extracting
+    choices from ui+events, which main loop can use to schedule a coroutine handling only the relevant args.
+    """
+
+    @dataclass
+    class Base:
+        func: callable
+        args: list = field(default_factory=list)
+        kwargs: dict = field(default_factory=dict)
+        def __call__(self, *dpg_args) -> Optional[CallbackReq.Base]:
+            return self.func(*self.args, dpg_args=dpg_args, **self.kwargs)
+
+    @dataclass  # func must be an awaitable callable, ie asyncio.iscoroutine
+    class SpawnCoro(Base): pass
+
+    @dataclass  # func must be an awaitable callable, ie asyncio.iscoroutine
+    class AwaitCoro(Base): pass
 
 
 RomfsFileTypes = ConstDottableStringSet({

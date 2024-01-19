@@ -5,6 +5,7 @@ import pathlib
 from typing import *
 from collections import defaultdict
 
+from .. import curio
 import dearpygui.dearpygui as dpg
 # deferred import graphviz
 import orjson
@@ -136,11 +137,12 @@ class AinbGraphLayout:
             return
         self.inflight_dot.edge(str(src_i), str(dst_i))
 
-    def finalize(self):
+    async def finalize(self):
         if self.has_layout or not self.is_graphviz_enabled():
             return
 
-        dpg.split_frame(delay=10)  # ms to wait, so we can see rendered node dimensions
+        # TODO reimplement "after next frame" wait
+        await curio.sleep(0.1)  # wait for dpg so we can see rendered node dimensions
 
         # Defer maybe_dot_node operations until here
         for node_i, tag in self.inflight_nodes.items():
@@ -158,7 +160,8 @@ class AinbGraphLayout:
             x, y = int(float(x)), -1 * int(float(y))
             out[node_index] = x, y
 
-        # TODO persist layout? this is faster than I expected though
+        # TODO persist layout queryable by i+command? Dict[i|str, vec2i] but i should be fine
+        # Persist separate per-graph xy translation for "panning" just like stinky did it
         self.layout_data = out
 
         # persist svg
@@ -203,7 +206,13 @@ class WindowAinbGraph:
     def json_textbox(self) -> DpgTag:
         return f"{self.tag}/tabs/json/textbox"
 
-    def create(self, **window_kwargs) -> DpgTag:
+    async def create_as_coro(self, **window_kwargs) -> None:
+        await self.create(**window_kwargs)
+        while True:
+            # ectx owns, we run this instance and its ui
+            await curio.sleep(69)
+
+    async def create(self, **window_kwargs) -> DpgTag:
         category, ainbfile = pathlib.Path(self.ainb.location.internalfile).parts
         if self.ainb.location.packfile == "Root":
             window_label = f"[{category}] {ainbfile}"
@@ -215,10 +224,10 @@ class WindowAinbGraph:
             on_close=lambda: self.ectx.close_file_window(self.ainb.location),
             **window_kwargs,
         )
-        self.render_contents()
+        await self.render_contents()
         return self.tag
 
-    def redump_json_textbox(self):
+    async def redump_json_textbox(self):
         # Replace json textbox with working ainb (possibly dirty)
         ainb_json_str = orjson.dumps(self.ainb.json, option=orjson.OPT_INDENT_2)
         # yep. this lib only supports 2 spaces, but fast + keeps unicode strings unescaped
@@ -232,6 +241,8 @@ class WindowAinbGraph:
     def rerender_graph_from_json(self):
         user_json_str = dpg.get_value(self.json_textbox)
 
+        # FIXME route through callback?
+        """
         # Send event to edit ctx
         edit_op = AinbEditOperation(op_type=AinbEditOperationTypes.REPLACE_JSON, op_value=user_json_str)
         self.ectx.perform_new_ainb_edit_operation(self.ainb, edit_op)
@@ -240,8 +251,10 @@ class WindowAinbGraph:
         dpg.delete_item(self.node_editor)
         dpg.delete_item(f"{self.node_editor}/toolbar")
         self.editor.render_contents()
+        """
+        # FIXME await self.editor.render_contents()
 
-    def rerender_history(self):
+    async def rerender_history(self):
         dpg.delete_item(self.history_entries_tag, children_only=True)
         # history is stored+appended with time asc, but displayed with time desc
         for edit_op in reversed(self.ectx.edit_histories.get(self.ainb.location.fullfile, [])):
@@ -252,21 +265,24 @@ class WindowAinbGraph:
                     dpg.add_text(str(edit_op.op_value))
                     dpg.add_separator()
 
-    def render_contents(self):
+    async def render_contents(self):
         def _tab_change(sender, data, user_data):
+            # FIXME async callback
+            """
             entered_tab = dpg.get_item_alias(data)
             is_autodump = True  # dpg.get_value(f"{self.tag}/tabs/json/autodump")
             if entered_tab == f"{self.tag}/tabs/json" and is_autodump:
-                self.redump_json_textbox()
+                await self.redump_json_textbox()
             if entered_tab == f"{self.tag}/tabs/history" and is_autodump:
-                self.rerender_history()
+                await self.rerender_history()
+            """
 
         with dpg.tab_bar(tag=f"{self.tag}/tabs", parent=self.tag, callback=_tab_change):
             # dpg.add_tab_button(label="[max]", callback=dpg.maximize_viewport)  # works at runtime, fails at init?
             # dpg.add_tab_button(label="wipe cache")
             with dpg.tab(tag=f"{self.tag}/tabs/graph", label="Node Graph"):
                 with dpg.child_window(autosize_x=True, autosize_y=True) as graph_window:
-                    self.editor = AinbGraphEditor.create(tag=self.node_editor, parent=graph_window, ainb=self.ainb)
+                    self.editor = await AinbGraphEditor.create(tag=self.node_editor, parent=graph_window, ainb=self.ainb)
 
             with dpg.tab(tag=f"{self.tag}/tabs/json", label="Parsed JSON"):
                 with dpg.child_window(autosize_x=True, autosize_y=True):
@@ -278,12 +294,12 @@ class WindowAinbGraph:
                         #      dpg.add_button(label="Open JSON in: ", source="jsdfl/opencmd")
                         #      dpg.add_input_text(default_value='$EDITOR "%s"', tag="jsdfl/opencmd")
                     dpg.add_input_text(tag=self.json_textbox, default_value="any slow dumps?", width=-1, height=-1, multiline=True, tab_input=True, readonly=False)
-                    self.redump_json_textbox()
+                    await self.redump_json_textbox()
 
             with dpg.tab(tag=f"{self.tag}/tabs/history", label="Edit History"):
                 with dpg.child_window(autosize_x=True, autosize_y=True):
                     dpg.add_group(tag=self.history_entries_tag)
-                    self.rerender_history()
+                    await self.rerender_history()
 
             save_ainb = lambda: self.ectx.save_ainb(self.ainb)
             dpg.add_tab_button(label="Save to modfs", callback=save_ainb)
@@ -291,20 +307,20 @@ class WindowAinbGraph:
 
 class AinbGraphEditor:
     @classmethod
-    def create(cls, tag: DpgTag, parent: DpgTag, ainb: MutableAinb) -> AinbGraphEditor:
+    async def create(cls, tag: DpgTag, parent: DpgTag, ainb: MutableAinb) -> AinbGraphEditor:
         editor = cls(tag=tag, parent=parent)
-        editor.set_ainb(ainb)
+        await editor.set_ainb(ainb)
         return editor
 
     def __init__(self, tag: DpgTag, parent: DpgTag):
         self.tag = tag
         self.parent = parent
 
-    def set_ainb(self, ainb: MutableAinb) -> None:
+    async def set_ainb(self, ainb: MutableAinb) -> None:
         self.ainb = ainb
         # TODO clear contents?
         self.layout = AinbGraphLayout.try_get_cached_layout(self.ainb.location)
-        self.render_contents()
+        await self.render_contents()
 
     @property
     def _add_node_tag(self) -> DpgTag:
@@ -410,7 +426,7 @@ class AinbGraphEditor:
 
         dpg.focus_item(input_tag)  # XXX inconsistent bullshit, this just uhh stopped working again :(
 
-    def render_contents(self):
+    async def render_contents(self):
         # sludge for now
         def _link_callback(sender, app_data):
             dpg.add_node_link(app_data[0], app_data[1], parent=sender)
@@ -423,10 +439,13 @@ class AinbGraphEditor:
         # - "{}" json button?
         def rerender_stinky():
             self.layout.insist_stinky = not self.layout.insist_stinky
+            # FIXME async callback: await self.render_contents()
+            """
             # Re-render editor TODO this belongs in AinbGraphEditor?
             dpg.delete_item(self.tag)
             dpg.delete_item(f"{self.tag}/toolbar")
             self.render_contents()
+            """
         with dpg.group(tag=f"{self.tag}/toolbar", horizontal=True, parent=self.parent):
             dpg.add_button(label=f"Add Node", callback=self.begin_add_node)
             dpg.add_button(label=f"Stinky {self.layout.insist_stinky}", callback=rerender_stinky)
@@ -441,9 +460,9 @@ class AinbGraphEditor:
             minimap_location=dpg.mvNodeMiniMap_Location_BottomRight
         )
 
-        self.render_ainb_nodes()
+        await self.render_ainb_nodes()
 
-    def render_ainb_nodes(self):
+    async def render_ainb_nodes(self):
         aj = self.ainb.json  # ainb json. we call him aj
         category, _ainbfile = pathlib.Path(self.ainb.location.internalfile).parts
 
@@ -465,10 +484,10 @@ class AinbGraphEditor:
             deferred_link_calls += node.render()
 
         # All nodes+attributes exist, now we can link them
-        self.render_links_and_layout(deferred_link_calls)
+        await self.render_links_and_layout(deferred_link_calls)
 
-    def render_links_and_layout(self, link_calls: List[DeferredNodeLinkCall]):
-        self.layout.finalize()
+    async def render_links_and_layout(self, link_calls: List[DeferredNodeLinkCall]):
+        await self.layout.finalize()
 
         # Add links
         node_i_links = defaultdict(set)

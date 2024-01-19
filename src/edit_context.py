@@ -32,6 +32,34 @@ class EditContext:
         self.open_windows: Dict[str, "WindowAinbGraph"] = {}
         self.edit_histories: Dict[str, List[AinbEditOperation]] = {}
 
+    def set_callback_queue(self, q):
+        self.dpg_callback_queue = q
+
+    async def open_ainb_window_as_coro(self, ainb_location: PackIndexEntry, dpg_args=None):
+        if window := self.open_windows.get(ainb_location.fullfile):
+            # Ignore request and just raise existing window
+            dpg.focus_item(window.tag)
+            return
+
+        from .ui.window_ainb_graph import WindowAinbGraph  # XXX
+        window = WindowAinbGraph(ainb_location, self)
+        i = len(self.open_windows)
+        self.open_windows[ainb_location.fullfile] = window
+        pos = [400 + 25*i, 50 + 25*i]
+        await window.create_as_coro(width=1280, height=1080, pos=pos)
+
+
+    # @classmethod
+    # async def create_as_coro(cls, immediate_query: str = None, dpg_args=()) -> None:
+    #     window = cls()
+    #     window.create(immediate_query)
+    #     while True:
+    #         # we own+supervise this instance and its ui
+    #         await curio.sleep(69)
+
+    async def open_asb_window_as_coro(self, asb_location: PackIndexEntry, dpg_args=None):
+        print(f"hi {asb_location}")
+
     def open_ainb_window(self, ainb_location: PackIndexEntry) -> None:
         if window := self.open_windows.get(ainb_location.fullfile):
             # Ignore request and just raise existing window

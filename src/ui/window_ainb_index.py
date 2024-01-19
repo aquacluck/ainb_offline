@@ -3,6 +3,7 @@ import pathlib
 from typing import *
 
 import dearpygui.dearpygui as dpg
+from .. import curio
 
 from .. import pack_util
 from ..app_types import *
@@ -12,12 +13,15 @@ from ..edit_context import EditContext
 
 class WindowAinbIndex:
     @classmethod
-    def create_anon_oneshot(cls) -> None:
+    async def create_as_coro(cls, parent: DpgTag) -> None:
         window = cls()
-        window.create()
+        window.create(parent)
+        while True:
+            # we own+supervise this instance and its ui
+            await curio.sleep(69)
 
-    def create(self) -> DpgTag:
-        self.tag = dpg.add_child_window(label="AINB Index", pos=[0, 18], width=400, autosize_y=True)
+    def create(self, parent: DpgTag) -> DpgTag:
+        self.tag = dpg.add_child_window(label="AINB Index", pos=[0, 18], width=400, autosize_y=True, parent=parent)
         self.render_contents()
         return self.tag
 
@@ -27,7 +31,11 @@ class WindowAinbIndex:
             def callback_open_ainb(s, a, u):
                 textitem = a[1]
                 ainb_location: PackIndexEntry = dpg.get_item_user_data(textitem)
-                EditContext.get().open_ainb_window(ainb_location)
+
+                ectx = EditContext.get()
+                req = CallbackReq.SpawnCoro(ectx.open_ainb_window_as_coro, [ainb_location])
+                ectx.dpg_callback_queue.put(req)
+
             dpg.add_item_clicked_handler(callback=callback_open_ainb)
 
         # Opening asb windows
@@ -35,7 +43,11 @@ class WindowAinbIndex:
             def callback_open_asb(s, a, u):
                 textitem = a[1]
                 asb_location: PackIndexEntry = dpg.get_item_user_data(textitem)
-                EditContext.get().open_asb_window(asb_location)
+
+                ectx = EditContext.get()
+                req = CallbackReq.SpawnCoro(ectx.open_asb_window_as_coro, [asb_location])
+                ectx.dpg_callback_queue.put(req)
+
             dpg.add_item_clicked_handler(callback=callback_open_asb)
 
         # Quick search
