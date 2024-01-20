@@ -125,13 +125,16 @@ async def init_basic_ui():
 async def after_first_frame():
     dpg.maximize_viewport()
     if open_location := resolve_argv_location():
-        pass # XXX EditContext.get().open_ainb_window(open_location)
+        ectx = EditContext.get()
+        req = CallbackReq.SpawnCoro(ectx.open_ainb_window_as_coro, [open_location])
+        await ectx.dpg_callback_queue.put(req)
+
 
 async def dpg_callback_consumer(queue):
     while True:
-        print(f'awaiting get {queue}')
+        #print(f'awaiting get {queue}')
         if job := await queue.get():
-            print(f"done got {job}")
+            #print(f"done got {job}")
             while job:
                 # First normalize what we're getting
                 if isinstance(job, tuple):
@@ -179,7 +182,9 @@ def main():
                 for job in jobs:
                     await dpg_callback_queue.put(job)
 
-            await curio.sleep(0)  # yield for any other tasks, TODO try threads instead
+            # We don't have any good reason to spawn threads, so this loop must await to yield control to other tasks,
+            # there is no preemptive scheduling
+            await curio.sleep(0)
 
             if frame_i == 10:
                 async with curio.TaskGroup() as g:

@@ -241,8 +241,6 @@ class WindowAinbGraph:
     def rerender_graph_from_json(self):
         user_json_str = dpg.get_value(self.json_textbox)
 
-        # FIXME route through callback?
-        """
         # Send event to edit ctx
         edit_op = AinbEditOperation(op_type=AinbEditOperationTypes.REPLACE_JSON, op_value=user_json_str)
         self.ectx.perform_new_ainb_edit_operation(self.ainb, edit_op)
@@ -250,9 +248,8 @@ class WindowAinbGraph:
         # Re-render editor TODO this belongs in AinbGraphEditor?
         dpg.delete_item(self.node_editor)
         dpg.delete_item(f"{self.node_editor}/toolbar")
-        self.editor.render_contents()
-        """
-        # FIXME await self.editor.render_contents()
+
+        return CallbackReq.AwaitCoro(self.editor.render_contents)
 
     async def rerender_history(self):
         dpg.delete_item(self.history_entries_tag, children_only=True)
@@ -266,18 +263,16 @@ class WindowAinbGraph:
                     dpg.add_separator()
 
     async def render_contents(self):
-        def _tab_change(sender, data, user_data):
-            # FIXME async callback
-            """
+        async def _tab_change(dpg_args):
+            sender, data, user_data = dpg_args
             entered_tab = dpg.get_item_alias(data)
             is_autodump = True  # dpg.get_value(f"{self.tag}/tabs/json/autodump")
             if entered_tab == f"{self.tag}/tabs/json" and is_autodump:
                 await self.redump_json_textbox()
             if entered_tab == f"{self.tag}/tabs/history" and is_autodump:
                 await self.rerender_history()
-            """
 
-        with dpg.tab_bar(tag=f"{self.tag}/tabs", parent=self.tag, callback=_tab_change):
+        with dpg.tab_bar(tag=f"{self.tag}/tabs", parent=self.tag, callback=CallbackReq.AwaitCoro(_tab_change)):
             # dpg.add_tab_button(label="[max]", callback=dpg.maximize_viewport)  # works at runtime, fails at init?
             # dpg.add_tab_button(label="wipe cache")
             with dpg.tab(tag=f"{self.tag}/tabs/graph", label="Node Graph"):
@@ -395,7 +390,7 @@ class AinbGraphEditor:
                 # Re-render editor TODO this belongs in AinbGraphEditor?
                 dpg.delete_item(self.tag)
                 dpg.delete_item(f"{self.tag}/toolbar")
-                self.render_contents()
+                return CallbackReq.AwaitCoro(self.render_contents)
 
             # Populate containers with all possible results
             for (node_type, param_details_json) in node_usages:
@@ -426,7 +421,7 @@ class AinbGraphEditor:
 
         dpg.focus_item(input_tag)  # XXX inconsistent bullshit, this just uhh stopped working again :(
 
-    async def render_contents(self):
+    async def render_contents(self, dpg_args=None):
         # sludge for now
         def _link_callback(sender, app_data):
             dpg.add_node_link(app_data[0], app_data[1], parent=sender)
@@ -439,13 +434,11 @@ class AinbGraphEditor:
         # - "{}" json button?
         def rerender_stinky():
             self.layout.insist_stinky = not self.layout.insist_stinky
-            # FIXME async callback: await self.render_contents()
-            """
             # Re-render editor TODO this belongs in AinbGraphEditor?
             dpg.delete_item(self.tag)
             dpg.delete_item(f"{self.tag}/toolbar")
-            self.render_contents()
-            """
+            return CallbackReq.AwaitCoro(self.render_contents)
+
         with dpg.group(tag=f"{self.tag}/toolbar", horizontal=True, parent=self.parent):
             dpg.add_button(label=f"Add Node", callback=self.begin_add_node)
             dpg.add_button(label=f"Stinky {self.layout.insist_stinky}", callback=rerender_stinky)
@@ -684,9 +677,7 @@ class AinbGraphEditorRenderHelpers:
                             dpg.add_text(f'@ ExternalAINB[{aref["File Category"]}] {aref["File Path"]}')
                             dpg.add_button(
                                 label="Open AINB",
-                                #user_data=dest_location,
-                                # XXX ideally plumb in ectx
-                                callback=lambda: EditContext.get().open_ainb_window(dest_location),
+                                callback=CallbackReq.SpawnCoro(EditContext.get().open_ainb_window_as_coro, [dest_location]),
                                 arrow=True,
                                 direction=dpg.mvDir_Right,
                             )

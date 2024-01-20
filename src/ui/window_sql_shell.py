@@ -26,6 +26,9 @@ class WindowSqlShell:
         while True:
             # we own+supervise this instance and its ui
             await curio.sleep(69)
+            # TODO accept queries from other tasks?
+            # if query := await self.queue.get():
+            #     self.todo_execute_append(query)
 
     def __init__(self):
         self.query_history: List[QueryHistoryEntry] = []

@@ -5,6 +5,7 @@ import pathlib
 from typing import *
 from collections import defaultdict
 
+from .. import curio
 import dearpygui.dearpygui as dpg
 import orjson
 
@@ -71,7 +72,13 @@ class WindowAsbGraph:
     def json_textbox(self) -> DpgTag:
         return f"{self.tag}/tabs/json/textbox"
 
-    def create(self, **window_kwargs) -> DpgTag:
+    async def create_as_coro(self, **window_kwargs) -> None:
+        await self.create(**window_kwargs)
+        while True:
+            # ectx owns, we run this instance and its ui
+            await curio.sleep(69)
+
+    async def create(self, **window_kwargs) -> DpgTag:
         _AS, asbfile = pathlib.Path(self.asb.location.internalfile).parts
         if self.asb.location.packfile == "Root":
             window_label = f"[{_AS}] {asbfile}"
@@ -83,10 +90,10 @@ class WindowAsbGraph:
             on_close=lambda: self.ectx.close_file_window(self.asb.location),
             **window_kwargs,
         )
-        self.render_contents()
+        await self.render_contents()
         return self.tag
 
-    def redump_json_textbox(self):
+    async def redump_json_textbox(self):
         # Replace json textbox with working asb (possibly dirty)
         asb_json_str = orjson.dumps(self.asb.json, option=orjson.OPT_INDENT_2)
         # yep. this lib only supports 2 spaces, but fast + keeps unicode strings unescaped
@@ -107,9 +114,10 @@ class WindowAsbGraph:
         # Re-render editor TODO this belongs in AsbGraphEditor?
         dpg.delete_item(self.node_editor)
         dpg.delete_item(f"{self.node_editor}/toolbar")
-        self.editor.render_contents()
 
-    def rerender_history(self):
+        return CallbackReq.AwaitCoro(self.editor.render_contents)
+
+    async def rerender_history(self):
         dpg.delete_item(self.history_entries_tag, children_only=True)
         # history is stored+appended with time asc, but displayed with time desc
         for edit_op in reversed(self.ectx.edit_histories.get(self.asb.location.fullfile, [])):
@@ -120,21 +128,22 @@ class WindowAsbGraph:
                     dpg.add_text(str(edit_op.op_value))
                     dpg.add_separator()
 
-    def render_contents(self):
-        def _tab_change(sender, data, user_data):
+    async def render_contents(self):
+        async def _tab_change(dpg_args):
+            sender, data, user_data = dpg_args
             entered_tab = dpg.get_item_alias(data)
             is_autodump = True  # dpg.get_value(f"{self.tag}/tabs/json/autodump")
             if entered_tab == f"{self.tag}/tabs/json" and is_autodump:
-                self.redump_json_textbox()
+                await self.redump_json_textbox()
             if entered_tab == f"{self.tag}/tabs/history" and is_autodump:
-                self.rerender_history()
+                await self.rerender_history()
 
-        with dpg.tab_bar(tag=f"{self.tag}/tabs", parent=self.tag, callback=_tab_change):
+        with dpg.tab_bar(tag=f"{self.tag}/tabs", parent=self.tag, callback=CallbackReq.AwaitCoro(_tab_change)):
             # dpg.add_tab_button(label="[max]", callback=dpg.maximize_viewport)  # works at runtime, fails at init?
             # dpg.add_tab_button(label="wipe cache")
             with dpg.tab(tag=f"{self.tag}/tabs/graph", label="Node Graph"):
                 with dpg.child_window(autosize_x=True, autosize_y=True) as graph_window:
-                    self.editor = AsbGraphEditor.create(tag=self.node_editor, parent=graph_window, asb=self.asb)
+                    self.editor = await AsbGraphEditor.create(tag=self.node_editor, parent=graph_window, asb=self.asb)
 
             with dpg.tab(tag=f"{self.tag}/tabs/json", label="Parsed JSON"):
                 with dpg.child_window(autosize_x=True, autosize_y=True):
@@ -146,12 +155,12 @@ class WindowAsbGraph:
                         #      dpg.add_button(label="Open JSON in: ", source="jsdfl/opencmd")
                         #      dpg.add_input_text(default_value='$EDITOR "%s"', tag="jsdfl/opencmd")
                     dpg.add_input_text(tag=self.json_textbox, default_value="any slow dumps?", width=-1, height=-1, multiline=True, tab_input=True, readonly=False)
-                    self.redump_json_textbox()
+                    await self.redump_json_textbox()
 
             with dpg.tab(tag=f"{self.tag}/tabs/history", label="Edit History"):
                 with dpg.child_window(autosize_x=True, autosize_y=True):
                     dpg.add_group(tag=self.history_entries_tag)
-                    self.rerender_history()
+                    await self.rerender_history()
 
             save_asb = lambda: self.ectx.save_asb(self.asb)
             dpg.add_tab_button(label="Save to modfs", callback=save_asb)
@@ -159,19 +168,19 @@ class WindowAsbGraph:
 
 class AsbGraphEditor:
     @classmethod
-    def create(cls, tag: DpgTag, parent: DpgTag, asb: MutableAsb) -> AsbGraphEditor:
+    async def create(cls, tag: DpgTag, parent: DpgTag, asb: MutableAsb) -> AsbGraphEditor:
         editor = cls(tag=tag, parent=parent)
-        editor.set_asb(asb)
+        await editor.set_asb(asb)
         return editor
 
     def __init__(self, tag: DpgTag, parent: DpgTag):
         self.tag = tag
         self.parent = parent
 
-    def set_asb(self, asb: MutableAsb) -> None:
+    async def set_asb(self, asb: MutableAsb) -> None:
         self.asb = asb
         # TODO clear contents?
-        self.render_contents()
+        await self.render_contents()
 
     @property
     def _add_node_tag(self) -> DpgTag:
@@ -188,7 +197,7 @@ class AsbGraphEditor:
         ):
             dpg.add_text("TODO LOL")
 
-    def render_contents(self):
+    async def render_contents(self, dpg_args=None):
         # sludge for now
         def _link_callback(sender, app_data):
             dpg.add_node_link(app_data[0], app_data[1], parent=sender)
@@ -213,7 +222,7 @@ class AsbGraphEditor:
         )
 
         self.preprocess_transitions()
-        self.render_asb_nodes()
+        await self.render_asb_nodes()
 
     def preprocess_transitions(self):
         self.command_to_transition_membership: Dict[str, List[MutableAsbTransition]] = defaultdict(list)
@@ -226,7 +235,7 @@ class AsbGraphEditor:
                 self.command_to_transition_membership[trans.json["Command 1"]].append(trans)
                 self.command_to_transition_membership[trans.json["Command 2"]].append(trans)
 
-    def render_asb_nodes(self):
+    async def render_asb_nodes(self):
         aj = self.asb.json  # asb json. we still call him aj
 
         # Render globals as a type of node? Not sure if dumb, we do need to link/associate globals into nodes anyways somehow
@@ -245,9 +254,9 @@ class AsbGraphEditor:
             deferred_link_calls += node.render()
 
         # All nodes+attributes exist, now we can link them
-        self.render_links_and_layout(deferred_link_calls)
+        await self.render_links_and_layout(deferred_link_calls)
 
-    def render_links_and_layout(self, link_calls: List[DeferredNodeLinkCall]):
+    async def render_links_and_layout(self, link_calls: List[DeferredNodeLinkCall]):
         # Add links
         node_i_links = defaultdict(set)
         for link in link_calls:

@@ -2,8 +2,8 @@ import os
 import pathlib
 from typing import *
 
-import dearpygui.dearpygui as dpg
 from .. import curio
+import dearpygui.dearpygui as dpg
 
 from .. import pack_util
 from ..app_types import *
@@ -32,6 +32,7 @@ class WindowAinbIndex:
                 textitem = a[1]
                 ainb_location: PackIndexEntry = dpg.get_item_user_data(textitem)
 
+                # these "registry" callbacks don't go through our main dpg_callback_consumer, so we manually enqueue it there
                 ectx = EditContext.get()
                 req = CallbackReq.SpawnCoro(ectx.open_ainb_window_as_coro, [ainb_location])
                 ectx.dpg_callback_queue.put(req)
