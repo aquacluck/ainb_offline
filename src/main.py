@@ -96,11 +96,6 @@ def resolve_argv_location() -> Optional[PackIndexEntry]:
             raise ValueError(f"Unparsable path {arg_location}")
 
 
-# from .jsonpath_ng import jsonpath, parse
-# jsonpath_expr = parse('foo[*].baz')
-# ok = [match.value for match in jsonpath_expr.find({'foo': [{'baz': 1}, {'baz': 2}]})]
-# print(ok)
-
 async def init_basic_ui():
     with dpg.window() as primary_window:
         with dpg.menu_bar():

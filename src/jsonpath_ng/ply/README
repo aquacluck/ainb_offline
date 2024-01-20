@@ -1,4 +1,0 @@
-https://github.com/dabeaz/ply/tree/1321375e013425958ea090b55aecae0a4b7face6/ply
-This is the last commit before 1fac9fed647909b92f3779dd34beb8564f6f247b which removes tabmodule.
-idk if we need that, but I don't want to figure it out rn
-python 3.6 - 3.10, >3.10 unknown
