@@ -107,7 +107,7 @@ AsbEditOperationDefaultValueSelector = Tuple[Union[str, int]]  # TODO better typ
 class AinbEditOperation:
     op_type: AinbEditOperationTypes
     op_value: Any
-    op_selector: Union[AinbEditOperationDefaultValueSelector] = None
+    op_selector: Optional["JSONPath"] = None
     when: datetime = field(default_factory=datetime.now)
     filehash = None  # TODO this should be set on certain persist+export events
 

@@ -1,5 +1,4 @@
 from __future__ import annotations
-from datetime import datetime
 import functools
 import pathlib
 from typing import *
@@ -12,9 +11,10 @@ import orjson
 
 from ..app_ainb_cache import scoped_pack_lookup
 from ..edit_context import EditContext
-from ..mutable_ainb import MutableAinb, MutableAinbNodeParam
+from ..mutable_ainb import MutableAinb, MutableAinbParam
 from .. import db, pack_util
 from ..app_types import *
+from .util import make_node_theme_for_hue, prettydate
 
 
 # Legend:
@@ -50,42 +50,15 @@ ParamSectionDpgAttrType = {
 #     optional /reslink{int}: Map<int, dpg.node_attribute>, Resident Update Link
 
 
-def prettydate(d: datetime) -> str:
-    # https://stackoverflow.com/a/5164027
-    delta = datetime.now() - d
-    s = delta.seconds
-    if delta.days > 7 or delta.days < 0:
-        return d.strftime('%d %b %y')
-    elif delta.days == 1:
-        return '1 day ago'
-    elif delta.days > 1:
-        return '{} days ago'.format(delta.days)
-    elif s <= 1:
-        return 'just now'
-    elif s < 60:
-        return '{} seconds ago'.format(s)
-    elif s < 120:
-        return '1 minute ago'
-    elif s < 3600:
-        return '{} minutes ago'.format(s/60)
-    elif s < 7200:
-        return '1 hour ago'
-    else:
-        return '{} hours ago'.format(s/3600)
-
-
-@functools.cache
-def make_node_theme_for_hue(hue: AppColor) -> DpgTag:
-    with dpg.theme() as theme:
-        with dpg.theme_component(dpg.mvNode):
-            dpg.add_theme_color(dpg.mvNodeCol_TitleBar, hue.set_hsv(s=0.5, v=0.4).to_rgb24(), category=dpg.mvThemeCat_Nodes)
-            dpg.add_theme_color(dpg.mvNodeCol_TitleBarHovered, hue.set_hsv(s=0.5, v=0.5).to_rgb24(), category=dpg.mvThemeCat_Nodes)
-            dpg.add_theme_color(dpg.mvNodeCol_TitleBarSelected, hue.set_hsv(s=0.4, v=0.55).to_rgb24(), category=dpg.mvThemeCat_Nodes)
-
-            dpg.add_theme_color(dpg.mvNodeCol_NodeBackground, hue.set_hsv(s=0.15, v=0.3).to_rgb24(), category=dpg.mvThemeCat_Nodes)
-            dpg.add_theme_color(dpg.mvNodeCol_NodeBackgroundHovered, hue.set_hsv(s=0.1, v=0.35).to_rgb24(), category=dpg.mvThemeCat_Nodes)
-            dpg.add_theme_color(dpg.mvNodeCol_NodeBackgroundSelected, hue.set_hsv(s=0.1, v=0.35).to_rgb24(), category=dpg.mvThemeCat_Nodes)
-    return theme
+# TODO lol whats an attachment (runtime node replacement...?)
+# TODO Global/EXB Index, Flags
+# if entry["Node Index"] <= -100 and entry["Node Index"] >= -8192:
+#     entry["Multi Index"] = -100 - entry["Node Index"]
+#     entry["Multi Count"] = entry["Parameter Index"]
+# AI/PhantomGanon.metaai.root.json node 33 is its own precon?
+# TODO Set Pointer Flag Bit Zero, maybe more
+# TODO allow editing names, although this will break links? higher level rename for that might be better
+# TODO displaying nulls + ui for nulling values
 
 
 class AinbGraphLayout:
@@ -453,31 +426,25 @@ class AinbGraphEditor:
             minimap_location=dpg.mvNodeMiniMap_Location_BottomRight
         )
 
-        await self.render_ainb_nodes()
-
-    async def render_ainb_nodes(self):
-        aj = self.ainb.json  # ainb json. we call him aj
-        category, _ainbfile = pathlib.Path(self.ainb.location.internalfile).parts
-
-        # TODO special layout+style for globals node (and move node nearby when hovering on a consuming param?)
-        # TODO globals links, eg <Assassin_Senior.action.interuptlargedamage.module>.nodes[0].#ASCommand["Global Parameters Index"] == 0 points to $ASName="LargeDamagge"
-        # Render globals as a type of node? Not sure if dumb, we do need to link/associate globals into nodes anyways somehow
-        if mutable_globals_section := self.ainb.get_global_param_section():
-            globals_node = AinbGraphEditorGlobalsNode(editor=self, section=mutable_globals_section)
-            globals_node.render()
-
-        graph_nodes = [
-            AinbGraphEditorNode(editor=self, node=self.ainb.get_node_i(i))
-            for i in range(self.ainb.get_node_len())
-        ]
-
-        # We can't link nodes that don't exist yet
-        deferred_link_calls: List[DeferredNodeLinkCall] = []
-        for node in graph_nodes:
-            deferred_link_calls += node.render()
-
+        await self.render_globals_node()
+        deferred_link_calls = await self.render_ainb_nodes()
         # All nodes+attributes exist, now we can link them
         await self.render_links_and_layout(deferred_link_calls)
+
+    async def render_globals_node(self):
+        # Render globals as a type of node? Not sure if dumb, we do need to link/associate globals into nodes anyways somehow
+        # TODO special layout+style for globals node (and move node nearby when hovering on a consuming param?)
+        # TODO globals links, eg <Assassin_Senior.action.interuptlargedamage.module>.nodes[0].#ASCommand["Global Parameters Index"] == 0 points to $ASName="LargeDamagge"
+        if self.ainb.global_params:
+            globals_node = AinbGraphEditorGlobalsNode(editor=self)
+            globals_node.render()
+
+    async def render_ainb_nodes(self) -> List[DeferredNodeLinkCall]:
+        # We can't link nodes that don't exist yet
+        deferred_link_calls = []
+        for node in self.ainb.nodes:
+            deferred_link_calls += AinbGraphEditorNode(editor=self, node=node).render()
+        return deferred_link_calls
 
     async def render_links_and_layout(self, link_calls: List[DeferredNodeLinkCall]):
         await self.layout.finalize()
@@ -514,8 +481,7 @@ class AinbGraphEditor:
 
         # Determine each node's depth = x coord
         node_max_depth_map = defaultdict(int)  # commands start at 0
-        for command_i in range(self.ainb.get_command_len()):
-            command = self.ainb.get_command_i(command_i)
+        for command_i, command in enumerate(self.ainb.commands):
             node_i = command.json["Left Node Index"]
             if node_i == -1:
                 continue
@@ -561,82 +527,9 @@ class AinbGraphEditor:
             dpg.set_item_pos(node_tag, pos)
 
 
-class AinbGraphEditorNode:
-    def __init__(self, editor: AinbGraphEditor, node: MutableAinbNode):
+class AinbGraphEditorGlobalsNode:
+    def __init__(self, editor: AinbGraphEditor):
         self.editor = editor
-        self.node = node
-
-    @property
-    def node_i(self) -> int:
-        return self.node.json["Node Index"]
-
-    @property
-    def node_json(self) -> dict:
-        return self.node.json
-
-    @property
-    def node_type(self) -> str:
-        node_type = self.node_json["Node Type"]
-        if node_type == "UserDefined":
-            return self.node_json["Name"]
-        return node_type
-
-    @property
-    def tag(self) -> DpgTag:
-        # TODO AinbGraphEditor.get_node_json(i) instead?
-        return f"{self.editor.tag}/node{self.node_i}"
-
-    def render(self) -> List[DeferredNodeLinkCall]:
-        output_attr_links: List[DeferredNodeLinkCall] = []
-        label = f"{self.node_type} ({self.node_i})"
-
-        rh = AinbGraphEditorRenderHelpers
-        with dpg.node(tag=f"{self.tag}/Node", label=label, parent=self.editor.tag):
-            rh.node_topmeta(self)
-            if section := self.node.get_param_section(ParamSectionName.IMMEDIATE):
-                rh.node_param_section(self, section)
-            if section := self.node.get_param_section(ParamSectionName.INPUT):
-                rh.node_param_section(self, section)
-            if section := self.node.get_param_section(ParamSectionName.OUTPUT):
-                rh.node_param_section(self, section)
-
-            for aj_link_type, aj_links in self.node_json.get("Linked Nodes", {}).items():
-                for i_of_link_type, aj_link in enumerate(aj_links):
-                    if aj_link_type == "Output/bool Input/float Input Link": # 0
-                        output_attr_links += rh.link_bidirectional_lookup(self, aj_link, i_of_link_type)
-                    elif aj_link_type == "Standard Link": # 2
-                        output_attr_links += rh.link_standard(self, aj_link, i_of_link_type)
-                    elif aj_link_type == "Resident Update Link": # 3
-                        output_attr_links += rh.link_resident_update(self, aj_link, i_of_link_type)
-                    elif aj_link_type == "String Input Link": # 4
-                        output_attr_links += rh.link_string_input(self, aj_link, i_of_link_type)
-                    elif aj_link_type == "int Input Link": # 5
-                        output_attr_links += rh.link_int_input(self, aj_link, i_of_link_type)
-                    else:
-                        print(f"Unsupported link type {aj_link_type}")
-                        breakpoint()
-                        continue
-
-        # Accumulate graphviz operations
-        self.editor.layout.maybe_dot_node(self.node_i, f"{self.tag}/Node")
-        for link in output_attr_links:
-            self.editor.layout.maybe_dot_edge(link.src_node_i, link.dst_node_i)
-
-        return output_attr_links
-
-
-class AinbGraphEditorGlobalsNode(AinbGraphEditorNode):
-    def __init__(self, editor: AinbGraphEditor, section: MutableAinbNodeParamSection):
-        self.editor = editor
-        self.section = section
-
-    @property
-    def node_i(self) -> int:
-        return -420  # lol
-
-    @property
-    def node_json(self) -> dict:
-        return self.editor.ainb.json
 
     @property
     def tag(self) -> DpgTag:
@@ -645,34 +538,69 @@ class AinbGraphEditorGlobalsNode(AinbGraphEditorNode):
     def render(self):
         globals_node_theme = make_node_theme_for_hue(AppStyleColors.GRAPH_GLOBALS_HUE)
         with dpg.node(tag=f"{self.tag}/Node", label=ParamSectionName.GLOBAL, parent=self.editor.tag):
-            AinbGraphEditorRenderHelpers.node_param_section(self, self.section)
+            for param in self.editor.ainb.global_params:
+                AinbGraphEditorParam(self.editor, param, self.tag).render()
         dpg.bind_item_theme(f"{self.tag}/Node", globals_node_theme)
 
 
-class AinbGraphEditorRenderHelpers:
-    @staticmethod
-    def node_topmeta(node: AinbGraphEditorNode) -> None:
-        with dpg.node_attribute(tag=f"{node.tag}/LinkTarget", attribute_type=dpg.mvNode_Attr_Input):
-            # TODO editor.commands: List[AinbGraphEditorCommand]
-            # editor.get_command_json(name: str) -> dict
-            for command_i, command in enumerate(node.editor.ainb.json.get("Commands", [])):
-                if node.node_i == command["Left Node Index"]:
+class AinbGraphEditorNode:
+    def __init__(self, editor: AinbGraphEditor, node: MutableAinbNode):
+        self.editor = editor
+        self.node = node
+
+    @property
+    def node_i(self) -> int:
+        i = self.node.path.segment_by_name("node_i")
+        assert i == self.node.json["Node Index"]
+        return i
+
+    @property
+    def node_type(self) -> str:
+        node_type = self.node.json["Node Type"]
+        if node_type == "UserDefined":
+            return self.node.json["Name"]
+        return node_type
+
+    @property
+    def tag(self) -> DpgTag:
+        return f"{self.editor.tag}/node{self.node_i}"
+
+    def render(self) -> List[DeferredNodeLinkCall]:
+        output_attr_links: List[DeferredNodeLinkCall] = []
+        label = f"{self.node_type} ({self.node_i})"
+
+        with dpg.node(tag=f"{self.tag}/Node", label=label, parent=self.editor.tag):
+            self.render_topmeta()
+            for param in self.node.all_params:
+                AinbGraphEditorParam(self.editor, param, self.tag).render()
+            for link in self.node.all_links:
+                output_attr_links += AinbGraphEditorLink(self.editor, self, link).render()
+
+        # Accumulate graphviz operations
+        self.editor.layout.maybe_dot_node(self.node_i, f"{self.tag}/Node")
+        for link in output_attr_links:
+            self.editor.layout.maybe_dot_edge(link.src_node_i, link.dst_node_i)
+
+        return output_attr_links
+
+    def render_topmeta(self):
+        with dpg.node_attribute(tag=f"{self.tag}/LinkTarget", attribute_type=dpg.mvNode_Attr_Input):
+            for command_i, command in enumerate(self.editor.ainb.json.get("Commands", [])):
+                if self.node_i == command["Left Node Index"]:
                     cmd_name = command["Name"]
                     dpg.add_text(f"@ Command[{cmd_name}]")
                     command_node_theme = make_node_theme_for_hue(AppStyleColors.GRAPH_COMMAND_HUE)
-                    dpg.bind_item_theme(f"{node.tag}/Node", command_node_theme)
+                    dpg.bind_item_theme(f"{self.tag}/Node", command_node_theme)
 
-
-            for aj_flag in node.node_json.get("Flags", []):
+            for aj_flag in self.node.json.get("Flags", []):
                 if aj_flag == "Is External AINB":
-                    for aref in node.editor.ainb.json["Embedded AINB Files"]:
-                        if aref["File Path"] != node.node_json["Name"] + ".ainb":
+                    for aref in self.editor.ainb.json["Embedded AINB Files"]:
+                        if aref["File Path"] != self.node.json["Name"] + ".ainb":
                             continue
-
                         #print(aref["Count"]) ...instance/link count? TODO
 
                         dest_ainbfile = aref["File Category"] + '/' + aref["File Path"]
-                        dest_location = scoped_pack_lookup(PackIndexEntry(internalfile=dest_ainbfile, packfile=node.editor.ainb.location.packfile, extension=RomfsFileTypes.AINB))
+                        dest_location = scoped_pack_lookup(PackIndexEntry(internalfile=dest_ainbfile, packfile=self.editor.ainb.location.packfile, extension=RomfsFileTypes.AINB))
                         with dpg.group(horizontal=True):
                             dpg.add_text(f'@ ExternalAINB[{aref["File Category"]}] {aref["File Path"]}')
                             dpg.add_button(
@@ -683,33 +611,20 @@ class AinbGraphEditorRenderHelpers:
                             )
 
                         external_ainb_theme = make_node_theme_for_hue(AppStyleColors.GRAPH_MODULE_HUE)
-                        dpg.bind_item_theme(f"{node.tag}/Node", external_ainb_theme)
+                        dpg.bind_item_theme(f"{self.tag}/Node", external_ainb_theme)
                 else:
                     dpg.add_text(f"@ {aj_flag}")
 
 
-    # TODO lol whats an attachment (runtime node replacement...?)
-    # TODO Global/EXB Index, Flags
-    # if entry["Node Index"] <= -100 and entry["Node Index"] >= -8192:
-    #     entry["Multi Index"] = -100 - entry["Node Index"]
-    #     entry["Multi Count"] = entry["Parameter Index"]
-    # AI/PhantomGanon.metaai.root.json node 33 is its own precon?
-    # TODO Set Pointer Flag Bit Zero, maybe more
-    @staticmethod
-    def node_param_section(node: AinbGraphEditorNode, param_section: MutableAinbNodeParamSection):
-        typed_params: Dict[str, List[Dict]] = param_section.json
-        for aj_type, aj_params in typed_params.items():
-            i_of_type = -1
-            for aj_param in aj_params:
-                i_of_type += 1
-                # TODO allow editing names, although this will break links? higher level rename for that might be better
-                # TODO displaying nulls + ui for nulling values
-                param = MutableAinbNodeParam.from_ref(aj_param, node.node_i, param_section.name, aj_type, i_of_type)
-                AinbGraphEditorRenderHelpers.node_param_render(node, param)
+class AinbGraphEditorParam:
+    def __init__(self, editor: AinbGraphEditor, param: MutableAinbParam, node_tag: DpgTag):
+        self.editor = editor
+        self.param = param
+        self.node_tag = node_tag
 
+    def render(self):
+        param = self.param
 
-    @staticmethod
-    def node_param_render(node: AinbGraphEditorNode, param: MutableAinbNodeParam):
         # Some dpg inputs (eg int) blow up when given a null, so we awkwardly omit any null arg
         v = param.json.get(param.param_default_name)
         dpg_default_value_kwarg = {"default_value": v} if v is not None else {}
@@ -720,11 +635,11 @@ class AinbGraphEditorRenderHelpers:
         def on_edit(sender, data, op_selector):
             # XXX ideally plumb in ectx, or send this up through the editor?
             edit_op = AinbEditOperation(op_type=AinbEditOperationTypes.PARAM_UPDATE_DEFAULT, op_value=data, op_selector=op_selector)
-            EditContext.get().perform_new_ainb_edit_operation(node.editor.ainb, edit_op)
+            EditContext.get().perform_new_ainb_edit_operation(self.editor.ainb, edit_op)
 
-        node_attr_tag_ns = f"{node.tag}/Params/{param.param_section_name}/{param.name}"
+        node_attr_tag_ns = f"{self.node_tag}/Params/{param.param_section_name}/{param.name}"
         ui_input_tag = f"{node_attr_tag_ns}/ui_input"
-        with dpg.node_attribute(tag=node_attr_tag_ns, parent=f"{node.tag}/Node", attribute_type=ParamSectionDpgAttrType[param.param_section_name]):
+        with dpg.node_attribute(tag=node_attr_tag_ns, parent=f"{self.node_tag}/Node", attribute_type=ParamSectionDpgAttrType[param.param_section_name]):
             if param.param_section_name == ParamSectionName.OUTPUT:
                 # not much to show unless we're planning to execute the graph?
                 dpg.add_text(ui_label)
@@ -792,14 +707,37 @@ class AinbGraphEditorRenderHelpers:
                 dpg.add_text(tag=ui_input_tag, label=err_label, width=300, **dpg_default_value_kwarg)
 
 
-    @staticmethod
-    def link_bidirectional_lookup(node: AinbGraphEditorNode, aj_link: Dict, i_of_link_type: int) -> List[DeferredNodeLinkCall]:
+class AinbGraphEditorLink:
+    def __init__(self, editor: AinbGraphEditor, node: AinbGraphEditorNode, link: MutableAinbLink):
+        self.editor = editor
+        self.node = node
+        self.link = link
+
+    def render(self) -> List[DeferredNodeLinkCall]:
+        # TODO subclass+factory these instead? same with underlying Mutable*?
+        ltype = self.link.link_type
+        if ltype == "Output/bool Input/float Input Link": # 0
+            return self.link_bidirectional_lookup()
+        elif ltype == "Standard Link": # 2
+            return self.link_standard()
+        elif ltype == "Resident Update Link": # 3
+            return self.link_resident_update()
+        elif ltype == "String Input Link": # 4
+            return self.link_string_input()
+        elif ltype == "int Input Link": # 5
+            return self.link_int_input()
+        else:
+            print(f"Unsupported link type {ltype}")
+            breakpoint()
+            return []
+
+    def link_bidirectional_lookup(self) -> List[DeferredNodeLinkCall]:
         # XXX idk if its a good name yet, just wanted something simpler for now
         aj_link_type = "Output/bool Input/float Input Link"
         output_attr_links = []
 
-        remote_i = aj_link["Node Index"]
-        local_param_name = aj_link["Parameter"]  # May be input or output
+        remote_i = self.link.json["Node Index"]
+        local_param_name = self.link.json["Parameter"]  # May be input or output
 
         # Find the local param being linked
         local_type = None
@@ -808,7 +746,7 @@ class AinbGraphEditorRenderHelpers:
         parameter_index = None
         local_param_node_index = None
 
-        for _local_type, local_params in node.node_json.get("Input Parameters", {}).items():
+        for _local_type, local_params in self.node.node.json.get("Input Parameters", {}).items():
             for _i_of_type, local_param in enumerate(local_params):
                 if local_param["Name"] == local_param_name:
                     local_type = _local_type
@@ -824,18 +762,18 @@ class AinbGraphEditorRenderHelpers:
                         for multi_item in list_of_nodeparams:
                             if multi_item.get("Function"):
                                 # FIXME traverse links to figure out the datatype (needed to use Parameter Index)?
-                                print(f"ignoring exb source in {node.node_type} {node.node_i}")
+                                print(f"ignoring exb source in {self.node.node_type} {self.node.node_i}")
                                 continue
                             multi_i = multi_item["Node Index"]
-                            multi_item_param_name = node.editor.ainb.json["Nodes"][multi_i]["Output Parameters"][local_type][multi_item["Parameter Index"]]["Name"]
-                            remote_multi_attr_tag = f"{node.editor.tag}/node{multi_i}/Params/Output Parameters/{multi_item_param_name}"
-                            my_attr_tag = f"{node.tag}/Params/Input Parameters/{local_param_name}"
+                            multi_item_param_name = self.editor.ainb.json["Nodes"][multi_i]["Output Parameters"][local_type][multi_item["Parameter Index"]]["Name"]
+                            remote_multi_attr_tag = f"{self.editor.tag}/node{multi_i}/Params/Output Parameters/{multi_item_param_name}"
+                            my_attr_tag = f"{self.node.tag}/Params/Input Parameters/{local_param_name}"
                             output_attr_links.append(DeferredNodeLinkCall(
                                 src_attr=remote_multi_attr_tag,
                                 dst_attr=my_attr_tag,
                                 src_node_i=multi_i,
-                                dst_node_i=node.node_i,
-                                parent=node.editor.tag,
+                                dst_node_i=self.node.node_i,
+                                parent=self.editor.tag,
                             ))
                         return output_attr_links  # Return multi links
 
@@ -853,7 +791,7 @@ class AinbGraphEditorRenderHelpers:
                             return output_attr_links # XXX Return nothing? I'm doing something wrong lol, get examples
                         parameter_index = local_param["Parameter Index"]  # can this still be a multi?
 
-        for _local_type, local_params in node.node_json.get("Output Parameters", {}).items():
+        for _local_type, local_params in self.node.node.json.get("Output Parameters", {}).items():
             for _i_of_type, local_param in enumerate(local_params):
                 if local_param["Name"] == local_param_name:
                     local_type = _local_type
@@ -867,7 +805,7 @@ class AinbGraphEditorRenderHelpers:
 
         # Resolve whatever the param is called in the remote node, we need this for visually linking to the remote
         remote_param_name = None
-        remote_params = node.editor.ainb.json["Nodes"][remote_i].get(remote_param_direction, {}).get(remote_type, [])
+        remote_params = self.editor.ainb.json["Nodes"][remote_i].get(remote_param_direction, {}).get(remote_type, [])
         if parameter_index is not None and parameter_index >= len(remote_params):
             # TODO Something from multis leaking, or some other lookup...?
             # FIXME AI/PhantomGanon.metaai.root.ainb, and Bool business
@@ -879,7 +817,7 @@ class AinbGraphEditorRenderHelpers:
         else:
             for remote_param in remote_params:
                 # Pointing to our node?
-                if remote_param.get("Node Index") != node.node_i:
+                if remote_param.get("Node Index") != self.node.node_i:
                     continue
 
                 # Correct index into per-type param list?
@@ -888,51 +826,50 @@ class AinbGraphEditorRenderHelpers:
 
                 remote_param_name = remote_param["Name"]
 
-        my_attr_tag = f"{node.tag}/Params/{local_param_direction}/{local_param_name}"
+        my_attr_tag = f"{self.node.tag}/Params/{local_param_direction}/{local_param_name}"
         if remote_param_name is None and (local_param_node_index or 0) > -1:
             # XXX is this right
-            print(f"No remote param found for {my_attr_tag} in {aj_link}")
+            print(f"No remote param found for {my_attr_tag} in {self.link.json}")
         else:
-            remote_attr_tag = f"{node.editor.tag}/node{remote_i}/Params/{remote_param_direction}/{remote_param_name}"
+            remote_attr_tag = f"{self.editor.tag}/node{remote_i}/Params/{remote_param_direction}/{remote_param_name}"
 
             # XXX is there anything more for when flags are precon, or was I just confused again
             if local_param_direction == "Output Parameters":
                 output_attr_links.append(DeferredNodeLinkCall(
                     src_attr=my_attr_tag,
                     dst_attr=remote_attr_tag,
-                    src_node_i=node.node_i,
+                    src_node_i=self.node.node_i,
                     dst_node_i=remote_i,
-                    parent=node.editor.tag
+                    parent=self.editor.tag
                 ))
             else:
                 output_attr_links.append(DeferredNodeLinkCall(
                     src_attr=remote_attr_tag,
                     dst_attr=my_attr_tag,
                     src_node_i=remote_i,
-                    dst_node_i=node.node_i,
-                    parent=node.editor.tag
+                    dst_node_i=self.node.node_i,
+                    parent=self.editor.tag
                 ))
         return output_attr_links
 
 
-    @staticmethod
-    def link_standard(node: AinbGraphEditorNode, aj_link: Dict, i_of_link_type: int) -> List[DeferredNodeLinkCall]:
+    def link_standard(self) -> List[DeferredNodeLinkCall]:
         aj_link_type = "Standard Link"
         output_attr_links = []
 
         # refs to entire nodes for stuff like simultaneous, selectors.
         # make new node attributes to support links to children.
-        dst_i = aj_link["Node Index"]
-        my_attr_tag = f"{node.tag}/stdlink{i_of_link_type}"
-        dst_attr_tag = f"{node.editor.tag}/node{dst_i}/LinkTarget"
+        dst_i = self.link.json["Node Index"]
+        my_attr_tag = f"{self.node.tag}/stdlink{self.link.i_of_link_type}"
+        dst_attr_tag = f"{self.editor.tag}/node{dst_i}/LinkTarget"
 
         with dpg.node_attribute(tag=my_attr_tag, attribute_type=dpg.mvNode_Attr_Output):
             labels = []
-            if cname := aj_link.get("Connection Name"):
+            if cname := self.link.json.get("Connection Name"):
                 labels.append(cname)
-            if cond := aj_link.get("Condition"):
+            if cond := self.link.json.get("Condition"):
                 labels.append(f"Condition: {cond}")
-            if note := aj_link.get("その他"):  # "Others"?
+            if note := self.link.json.get("その他"):  # "Others"?
                 labels.append(note)  # Contains "Default"?
             label = ", ".join(labels) or f"[{aj_link_type}]"
             dpg.add_text(label)
@@ -940,64 +877,62 @@ class AinbGraphEditorRenderHelpers:
         output_attr_links.append(DeferredNodeLinkCall(
             src_attr=my_attr_tag,
             dst_attr=dst_attr_tag,
-            src_node_i=node.node_i,
+            src_node_i=self.node.node_i,
             dst_node_i=dst_i,
-            parent=node.editor.tag
+            parent=self.editor.tag
         ))
         return output_attr_links
 
 
-    @staticmethod
-    def link_resident_update(node: AinbGraphEditorNode, aj_link: Dict, i_of_link_type: int) -> List[DeferredNodeLinkCall]:
+    def link_resident_update(self) -> List[DeferredNodeLinkCall]:
         output_attr_links = []
 
         # pointers to params owned by other nodes? idk
         # pulling in references to other nodes? idk
-        dst_i = aj_link["Node Index"]
-        my_attr_tag = f"{node.tag}/reslink{i_of_link_type}"
+        dst_i = self.link.json["Node Index"]
+        my_attr_tag = f"{self.node.tag}/reslink{self.link.i_of_link_type}"
 
-        # print(aj_link)
+        # print(self.link.json)
 
-        dst_attr_tag = f"{node.editor.tag}/node{dst_i}/LinkTarget" # TODO learn some things
-        # if dst_param_name := aj_link["Update Info"].get("String"):
-        #     # dst_attr_tag = f"{node.editor.tag}/node{dst_i}/Params/Input Parameters/{dst_param_name}"
+        dst_attr_tag = f"{self.editor.tag}/node{dst_i}/LinkTarget" # TODO learn some things
+        # if dst_param_name := self.link.json["Update Info"].get("String"):
+        #     # dst_attr_tag = f"{self.editor.tag}/node{dst_i}/Params/Input Parameters/{dst_param_name}"
         #     # I don't understand how this String works, just point to the node for now.
-        #     dst_attr_tag = f"{node.editor.tag}/node{dst_i}/LinkTarget"
+        #     dst_attr_tag = f"{self.editor.tag}/node{dst_i}/LinkTarget"
         # else:
         #     # Pointing into things like Element_Sequential or UDT @Is External AINB
         #     # seem to not specify a String, so we'll just point at the node itself until
         #     # this default/lhs/internal/??? param is better understood.
         #     # The ResUpdate flags usually include "Is Valid Update" when this happens.
-        #     dst_attr_tag = f"{node.editor.tag}/node{dst_i}/LinkTarget"
+        #     dst_attr_tag = f"{self.editor.tag}/node{dst_i}/LinkTarget"
 
         with dpg.node_attribute(tag=my_attr_tag, attribute_type=dpg.mvNode_Attr_Output):
-            flags = aj_link["Update Info"]["Flags"]
+            flags = self.link.json["Update Info"]["Flags"]
             label = f"[ResUpdate] ({flags})" if flags else "[ResUpdate]"
             dpg.add_text(label)
 
         output_attr_links.append(DeferredNodeLinkCall(
             src_attr=my_attr_tag,
             dst_attr=dst_attr_tag,
-            src_node_i=node.node_i,
+            src_node_i=self.node.node_i,
             dst_node_i=dst_i,
-            parent=node.editor.tag
+            parent=self.editor.tag
         ))
         return output_attr_links
 
 
-    @staticmethod
-    def link_string_input(node: AinbGraphEditorNode, aj_link: Dict, i_of_link_type: int) -> List[DeferredNodeLinkCall]:
+    def link_string_input(self) -> List[DeferredNodeLinkCall]:
         output_attr_links = []
 
         # The link info exists on the destination `node`, so the source is "remote"
-        remote_src_node_i: int = aj_link["Node Index"]
-        dst_param_name: str = aj_link["Parameter"]
-        dst_attr_tag: DpgTag = f"{node.tag}/Params/Input Parameters/{dst_param_name}"
+        remote_src_node_i: int = self.link.json["Node Index"]
+        dst_param_name: str = self.link.json["Parameter"]
+        dst_attr_tag: DpgTag = f"{self.node.tag}/Params/Input Parameters/{dst_param_name}"
 
         # We need to find the remote node's param index, to get that remote param's name, used to visually link.
         # This param index is stored on the local param. The link info itself only locates the local/destination name and remote/source *node index*.
         remote_param_i: int = None
-        for local_param in node.node_json[ParamSectionName.INPUT]["string"]:
+        for local_param in self.node.node.json[ParamSectionName.INPUT]["string"]:
             # idk why we have both of these, but may as well check both
             if local_param["Name"] != dst_param_name:
                 continue
@@ -1008,35 +943,34 @@ class AinbGraphEditorRenderHelpers:
             break
 
         if remote_param_i is None:
-            print(f"No remote param found for {dst_attr_tag} in {aj_link}")
+            print(f"No remote param found for {dst_attr_tag} in {self.link.json}")
 
-        remote_node_json = node.editor.ainb.json["Nodes"][remote_src_node_i]
+        remote_node_json = self.editor.ainb.json["Nodes"][remote_src_node_i]
         remote_src_param_name = remote_node_json[ParamSectionName.OUTPUT]["string"][remote_param_i]["Name"]
 
-        src_attr_tag: DpgTag = f"{node.editor.tag}/node{remote_src_node_i}/Params/Output Parameters/{remote_src_param_name}"
+        src_attr_tag: DpgTag = f"{self.editor.tag}/node{remote_src_node_i}/Params/Output Parameters/{remote_src_param_name}"
         output_attr_links.append(DeferredNodeLinkCall(
             src_attr=src_attr_tag,
             dst_attr=dst_attr_tag,
             src_node_i=remote_src_node_i,
-            dst_node_i=node.node_i,
-            parent=node.editor.tag
+            dst_node_i=self.node.node_i,
+            parent=self.editor.tag
         ))
         return output_attr_links
 
 
-    @staticmethod
-    def link_int_input(node: AinbGraphEditorNode, aj_link: Dict, i_of_link_type: int) -> List[DeferredNodeLinkCall]:
+    def link_int_input(self) -> List[DeferredNodeLinkCall]:
         output_attr_links = []
 
         # The link info exists on the destination `node`, so the source is "remote"
-        remote_src_node_i: int = aj_link["Node Index"]
-        dst_param_name: str = aj_link["Parameter"]
-        dst_attr_tag: DpgTag = f"{node.tag}/Params/Input Parameters/{dst_param_name}"
+        remote_src_node_i: int = self.link.json["Node Index"]
+        dst_param_name: str = self.link.json["Parameter"]
+        dst_attr_tag: DpgTag = f"{self.node.tag}/Params/Input Parameters/{dst_param_name}"
 
         # We need to find the remote node's param index, to get that remote param's name, used to visually link.
         # This param index is stored on the local param. The link info itself only locates the local/destination name and remote/source *node index*.
         remote_param_i: int = None
-        for local_param in node.node_json[ParamSectionName.INPUT]["int"]:
+        for local_param in self.node.node.json[ParamSectionName.INPUT]["int"]:
             # idk why we have both of these, but may as well check both
             if local_param["Name"] != dst_param_name:
                 continue
@@ -1047,17 +981,17 @@ class AinbGraphEditorRenderHelpers:
             break
 
         if remote_param_i is None:
-            print(f"No remote param found for {dst_attr_tag} in {aj_link}")
+            print(f"No remote param found for {dst_attr_tag} in {self.link.json}")
 
-        remote_node_json = node.editor.ainb.json["Nodes"][remote_src_node_i]
+        remote_node_json = self.editor.ainb.json["Nodes"][remote_src_node_i]
         remote_src_param_name = remote_node_json[ParamSectionName.OUTPUT]["int"][remote_param_i]["Name"]
 
-        src_attr_tag: DpgTag = f"{node.editor.tag}/node{remote_src_node_i}/Params/Output Parameters/{remote_src_param_name}"
+        src_attr_tag: DpgTag = f"{self.editor.tag}/node{remote_src_node_i}/Params/Output Parameters/{remote_src_param_name}"
         output_attr_links.append(DeferredNodeLinkCall(
             src_attr=src_attr_tag,
             dst_attr=dst_attr_tag,
             src_node_i=remote_src_node_i,
-            dst_node_i=node.node_i,
-            parent=node.editor.tag
+            dst_node_i=self.node.node_i,
+            parent=self.editor.tag
         ))
         return output_attr_links

@@ -8,21 +8,14 @@ import orjson
 
 from .app_types import *
 from .dt_tools.ainb import AINB
+from .jsonpath import JSONPath
 
 
-# Core concepts:
 # - dt_tools.ainb.AINB.output_dict is our canonical format, no matter the cost.
 #   This keeps manual edits, debugging, interop, etc accessible to almost anyone.
-# - Mutable types are passed by reference and as long as all mutations are
-#   performed in-place, this means we can anchor our objects to specific spots
-#   in the json tree without maintaining a copy.
-# - However this complicates operations like node insertion, where we must alter
-#   a list of mutables without reassigning over any of them, as well as ensuring
-#   our List[MutableAinbNode] matches this insertion. So these "json fragment"
-#   classes should be short lived, a thin wrapper over the fragment that we throw
-#   away after each render, and reinstantiate as needed inside callbacks/etc.
-# - (Maintaining a large pool of these fragments objs might help performance for eg
-#   continuous slider inputs, we could reassign their reference as needed.)
+# - Mutable types are accessed by reference and as long as all mutations are
+#   performed in-place, this means we can query->mutate at specific spots in the
+#   json tree without maintaining a copy.
 # - MutableAinb.json holds all ainb state, AinbGraph* reads from here to render ui,
 #   ui sends AinbEditOperations to EditContext, EditContext stores AinbEditOperations as
 #   history before sending them to AinbEditOperationExecutor to run, then ui may re-render.
@@ -37,63 +30,92 @@ class MutableAinb:
         ainb.location = ainb_location
         return ainb
 
-    def get_command_i(self, i: int) -> MutableAinbCommand:
-        return MutableAinbCommand.from_ref(self.json["Commands"][i])
+    @property
+    def commands(self) -> List[MutableAinbCommand]:
+        path = JSONPath(["Commands", "*"], {"command_i": 1})
+        return [MutableAinbCommand(self, p) for p in path.glob(self.json)]
 
-    def get_command_len(self) -> int:
-        return len(self.json.get("Commands", []))
+    @property
+    def nodes(self) -> List[MutableAinbNode]:
+        path = JSONPath(["Nodes", "*"], {"node_i": 1})
+        return [MutableAinbNode(self, p) for p in path.glob(self.json)]
 
-    def get_node_i(self, i: int) -> MutableAinbNode:
-        return MutableAinbNode.from_ref(self.json["Nodes"][i])
-
-    def get_node_len(self) -> int:
-        return len(self.json.get("Nodes", []))
-
-    def get_global_param_section(self) -> Optional[MutableAinbNodeParamSection]:
-        if section := self.json.get(ParamSectionName.GLOBAL):
-            return MutableAinbNodeParamSection.from_ref(section, ParamSectionName.GLOBAL)
+    @property
+    def global_params(self) -> List[MutableAinbParam]:
+        path = JSONPath([ParamSectionName.GLOBAL, '**', '*'], {"param_section_name": 0, "param_type": 1, "i_of_type": 2})
+        return [MutableAinbParam(self, p) for p in path.glob(self.json)]
 
 
 class MutableAinbCommand:
-    @classmethod
-    def from_ref(cls, json: dict) -> MutableAinbCommand:
-        cmd = cls()
-        cmd.json = json
-        return cmd
+    def __init__(self, ainb: MutableAinb, path: JSONPath):
+        self.ainb = ainb
+        self.path = path
+
+    @property
+    def json(self):
+        return self.path.get_one(self.ainb.json)
 
 
 class MutableAinbNode:
-    @classmethod
-    def from_ref(cls, json: dict) -> MutableAinbNode:
-        node = cls()
-        node.json = json
-        return node
+    def __init__(self, ainb: MutableAinb, path: JSONPath):
+        self.ainb = ainb
+        self.path = path
 
-    def get_param_section(self, name: ParamSectionName) -> Optional[MutableAinbNodeParamSection]:
-        if section := self.json.get(name):
-            return MutableAinbNodeParamSection.from_ref(section, name)
-        return None
+    @property
+    def json(self):
+        return self.path.get_one(self.ainb.json)
+
+    @property
+    def all_params(self) -> List[MutableAinbParam]:
+        out = []
+        idx_next = len(self.path.path)
+        for sname in [ParamSectionName.IMMEDIATE, ParamSectionName.INPUT, ParamSectionName.OUTPUT]:
+            path = self.path.copy()
+            path.path += [sname, '**', '*']
+            path.names["param_section_name"] = idx_next
+            path.names["param_type"] = idx_next + 1
+            path.names["i_of_type"] = idx_next + 2
+            out += [MutableAinbParam(self.ainb, p) for p in path.glob(self.ainb.json)]
+        return out
+
+    @property
+    def all_links(self) -> List[MutableAinbLink]:
+        out = []
+        idx_next = len(self.path.path)
+        path = self.path.copy()
+        path.path += ["Linked Nodes", '**', '*']
+        path.names["link_type"] = idx_next + 1
+        path.names["i_of_link_type"] = idx_next + 2
+        out += [MutableAinbLink(self.ainb, p) for p in path.glob(self.ainb.json)]
+        return out
 
 
-class MutableAinbNodeParamSection:
-    @classmethod
-    def from_ref(cls, json: dict, name: str) -> MutableAinbNodeParamSection:
-        section = cls()
-        section.json = json
-        section.name = name  # XXX subclass on name, globals/imm/in/out unique logic?
-        return section
+class MutableAinbParam:
+    def __init__(self, ainb: MutableAinb, path: JSONPath):
+        self.ainb = ainb
+        self.path = path
 
+    @property
+    def json(self):
+        return self.path.get_one(self.ainb.json)
 
-class MutableAinbNodeParam:
-    @classmethod
-    def from_ref(cls, json: dict, node_i: int, param_section_name: ParamSectionName, param_type: str, i_of_type: int) -> MutableAinbNodeParam:
-        param = cls()
-        param.json = json
-        param.node_i = node_i
-        param.param_section_name = param_section_name
-        param.param_type = param_type
-        param.i_of_type = i_of_type
-        return param
+    @property
+    def param_section_name(self) -> str:
+        return self.path.segment_by_name("param_section_name")
+
+    @property
+    def param_type(self) -> str:
+        return self.path.segment_by_name("param_type")
+
+    @property
+    def i_of_type(self) -> int:
+        return self.path.segment_by_name("i_of_type")
+
+    @property
+    def node_i(self) -> int:
+        if self.param_section_name == ParamSectionName.GLOBAL:
+            return -420  # lol
+        return self.path.segment_by_name("node_i")
 
     @property
     def param_default_name(self) -> str:
@@ -103,9 +125,29 @@ class MutableAinbNodeParam:
     def name(self) -> str:
         return self.json.get("Name", AppErrorStrings.FAILNULL)
 
-    def get_default_value_selector(self) -> AinbEditOperationDefaultValueSelector:
-        op_selector = ("Nodes", self.node_i, self.param_section_name, self.param_type, self.i_of_type, self.param_default_name)
-        return op_selector
+    def get_default_value_selector(self) -> JSONPath:
+        path = self.path.copy()
+        path.path.append(self.param_default_name)
+        path.names["param_default_name"] = len(path.path) - 1
+        return path
+
+
+class MutableAinbLink:
+    def __init__(self, ainb: MutableAinb, path: JSONPath):
+        self.ainb = ainb
+        self.path = path
+
+    @property
+    def json(self):
+        return self.path.get_one(self.ainb.json)
+
+    @property
+    def link_type(self) -> str:
+        return self.path.segment_by_name("link_type")
+
+    @property
+    def i_of_link_type(self) -> int:
+        return self.path.segment_by_name("i_of_link_type")
 
 
 class AinbEditOperationExecutor:
@@ -153,9 +195,8 @@ class AinbEditOperationExecutor:
             if guid := node_json.get("GUID") is None:
                 node_json["GUID"] = str(uuid.uuid4())
 
-            # Can this even happen?
+            # This can happen
             if ainb.json.get("Nodes") is None:
-                print("it happened")
                 ainb.json["Nodes"] = []
 
             # Append + assign index
@@ -177,7 +218,9 @@ class AinbEditOperationExecutor:
         def try_merge_history(edit_op: AinbEditOperation, prev_op: AinbEditOperation) -> bool:
             if (edit_op.when - prev_op.when) > timedelta(seconds=2):
                 return False  # Too far apart, don't merge
-            if edit_op.op_selector != prev_op.op_selector:
+            if edit_op.op_type != prev_op.op_type:
+                return False
+            if edit_op.op_selector.path != prev_op.op_selector.path:
                 return False  # Different targets, don't merge (this means selectors:targets should be 1:1)
 
             prev_op.when = edit_op.when  # Bump time, allowing us to keep amending this entry
@@ -186,26 +229,18 @@ class AinbEditOperationExecutor:
 
         @staticmethod
         def execute(ainb: MutableAinb, edit_op: AinbEditOperation):
-            #print(f"param default = {edit_op.op_value} @ {edit_op.op_selector}")
-            sel = edit_op.op_selector
-            if len(sel) != 6 or sel[0] != "Nodes" or sel[-1] not in ("Value", "Default Value"):
-                raise AssertionError(f"Cannot parse selector {sel}")
-
             # The path is guaranteed to exist for this case, so no missing parts
             # aj["Nodes"][i]["Immediate Parameters"][aj_type][i_of_type]["Value"] = op_value
             # aj["Global Parameters"][aj_type][i_of_type]["Default Value"] = op_value
 
-            if sel[1] == -420 and sel[2] == ParamSectionName.GLOBAL:
-                target_params = ainb.json[ParamSectionName.GLOBAL]
-            else:
-                target_params = ainb.json[sel[0]][sel[1]][sel[2]]
+            #print(f"param default = {edit_op.op_value} @ {edit_op.op_selector}")
+            path: JSONPath = edit_op.op_selector
 
-            param_type, i_of_type, default_name = sel[3], sel[4], sel[5]
-            if param_type == "vec3f":
+            if path.segment_by_name("param_type") == "vec3f":
+                lhs = path.get_one(ainb.json)
                 x, y, z, _ = edit_op.op_value
-                target_params[param_type][i_of_type][default_name][0] = x
-                target_params[param_type][i_of_type][default_name][1] = y
-                target_params[param_type][i_of_type][default_name][2] = z
+                lhs[0] = x  # Mutate components in-place
+                lhs[1] = y
+                lhs[2] = z
             else:
-                target_params[param_type][i_of_type][default_name] = edit_op.op_value
-
+                path.update_one(ainb.json, edit_op.op_value)
