@@ -29,7 +29,7 @@ def prettydate(d: datetime) -> str:
         return '{} hours ago'.format(s/3600)
 
 
-@functools.cache
+@functools.lru_cache
 def make_node_theme_for_hue(hue: AppColor) -> DpgTag:
     with dpg.theme() as theme:
         with dpg.theme_component(dpg.mvNode):

@@ -1,5 +1,4 @@
 from __future__ import annotations
-import functools
 import pathlib
 from typing import *
 from collections import defaultdict

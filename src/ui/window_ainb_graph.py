@@ -73,7 +73,7 @@ class AinbGraphLayout:
         return self.layout_data is not None
 
     @staticmethod
-    @functools.cache
+    @functools.lru_cache
     def is_graphviz_enabled() -> bool:
         try:
             import graphviz
