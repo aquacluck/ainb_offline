@@ -30,7 +30,7 @@ class AinbFileNodeUsageIndex:
         conn.execute(f"""
             INSERT INTO {cls.TABLE}
             (file_category, node_type, param_details_json, detailset_usage_count, is_most_common)
-            VALUES (?, ?, json(?), 1, 0)
+            VALUES (?, ?, ?, 1, 0)
             ON CONFLICT DO UPDATE SET detailset_usage_count = detailset_usage_count + 1
             """, (file_category, node_type, orjson.dumps(param_details_json)))
 
