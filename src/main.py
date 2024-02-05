@@ -153,6 +153,7 @@ async def dpg_callback_consumer(queue):
 
                 # Then dispatch, maybe receiving chained cb
                 if isinstance(dpg_callback, CallbackReq.SpawnCoro):
+                    # We never actually join() these, curio screams a little but it doesn't really matter afaict
                     task: curio.Task = await curio.spawn(dpg_callback(*dpg_args))
                     job = None  # break
                 elif isinstance(dpg_callback, CallbackReq.AwaitCoro):

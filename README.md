@@ -5,7 +5,7 @@ Folders we use:
 
 
 Usage + dependencies:
-- Installing both the graphviz bindings from pip and Graphviz itself from https://graphviz.org/download/ is recommended for acceptable graph layout.
+- Installing both the graphviz bindings from pip and Graphviz itself from https://graphviz.org/download/ is required
 ```sh
 # Quick start with default paths in repo: ROMFS=./romfs, APPVAR=./var, OUTPUT_MODFS=./var/modfs
 pip install dearpygui mmh3 pyyaml byml sarc zstandard orjson graphviz

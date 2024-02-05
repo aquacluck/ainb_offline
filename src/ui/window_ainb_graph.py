@@ -1,12 +1,11 @@
 from __future__ import annotations
-import functools
 import pathlib
 from typing import *
 from collections import defaultdict
 
 from .. import curio
 import dearpygui.dearpygui as dpg
-# deferred import graphviz
+import graphviz
 import orjson
 
 from ..app_ainb_cache import scoped_pack_lookup
@@ -63,26 +62,16 @@ ParamSectionDpgAttrType = {
 
 class AinbGraphLayout:
     layout_data: dict = None
-    inflight_dot: "graphviz.Digraph" = None
+    inflight_dot: graphviz.Digraph = None
     inflight_nodes: dict = None
     location: PackIndexEntry = None
-    insist_stinky: bool = False  # use old layout
 
     @property
     def has_layout(self) -> bool:
         return self.layout_data is not None
 
-    @staticmethod
-    @functools.lru_cache
-    def is_graphviz_enabled() -> bool:
-        try:
-            import graphviz
-            return True
-        except ImportError:
-            return False
-
     @classmethod
-    def try_get_cached_layout(cls, location: PackIndexEntry) -> "AinbGraphLayout":
+    def try_get_cached_layout(cls, location: PackIndexEntry) -> AinbGraphLayout:
         # if layout_data := db.TODOLayoutCache.get_by_fullfile(location.fullfile):
         #     return cls(location, layout_data)
         return cls(location)
@@ -90,9 +79,8 @@ class AinbGraphLayout:
     def __init__(self, location: PackIndexEntry, layout_data: dict = None):
         self.location = location
         self.layout_data = layout_data
-        if not self.has_layout and self.is_graphviz_enabled():
+        if not self.has_layout:
             # begin building new layout
-            import graphviz
             self.inflight_nodes ={}
             self.inflight_dot = graphviz.Digraph(
                 "hi", #data["Info"]["Filename"],
@@ -101,17 +89,17 @@ class AinbGraphLayout:
             )
 
     def maybe_dot_node(self, i: int, node_tag: DpgTag):
-        if self.has_layout or not self.is_graphviz_enabled():
+        if self.has_layout:
             return
         self.inflight_nodes[i] = node_tag
 
     def maybe_dot_edge(self, src_i: int, dst_i: int):
-        if self.has_layout or not self.is_graphviz_enabled():
+        if self.has_layout:
             return
         self.inflight_dot.edge(str(src_i), str(dst_i))
 
     async def finalize(self):
-        if self.has_layout or not self.is_graphviz_enabled():
+        if self.has_layout:
             return
 
         # TODO reimplement "after next frame" wait
@@ -405,16 +393,8 @@ class AinbGraphEditor:
         # - "jump to" node list dropdown
         # - dirty indicators
         # - "{}" json button?
-        def rerender_stinky():
-            self.layout.insist_stinky = not self.layout.insist_stinky
-            # Re-render editor TODO this belongs in AinbGraphEditor?
-            dpg.delete_item(self.tag)
-            dpg.delete_item(f"{self.tag}/toolbar")
-            return CallbackReq.AwaitCoro(self.render_contents)
-
         with dpg.group(tag=f"{self.tag}/toolbar", horizontal=True, parent=self.parent):
             dpg.add_button(label=f"Add Node", callback=self.begin_add_node)
-            dpg.add_button(label=f"Stinky {self.layout.insist_stinky}", callback=rerender_stinky)
 
         # Main graph ui + rendering nodes
         dpg.add_node_editor(
@@ -426,12 +406,6 @@ class AinbGraphEditor:
             minimap_location=dpg.mvNodeMiniMap_Location_BottomRight
         )
 
-        await self.render_globals_node()
-        deferred_link_calls = await self.render_ainb_nodes()
-        # All nodes+attributes exist, now we can link them
-        await self.render_links_and_layout(deferred_link_calls)
-
-    async def render_globals_node(self):
         # Render globals as a type of node? Not sure if dumb, we do need to link/associate globals into nodes anyways somehow
         # TODO special layout+style for globals node (and move node nearby when hovering on a consuming param?)
         # TODO globals links, eg <Assassin_Senior.action.interuptlargedamage.module>.nodes[0].#ASCommand["Global Parameters Index"] == 0 points to $ASName="LargeDamagge"
@@ -439,90 +413,24 @@ class AinbGraphEditor:
             globals_node = AinbGraphEditorGlobalsNode(editor=self)
             globals_node.render()
 
-    async def render_ainb_nodes(self) -> List[DeferredNodeLinkCall]:
-        # We can't link nodes that don't exist yet
-        deferred_link_calls = []
-        for node in self.ainb.nodes:
-            deferred_link_calls += AinbGraphEditorNode(editor=self, node=node).render()
-        return deferred_link_calls
+        links: List[AinbGraphEditorLink] = []
+        for n in self.ainb.nodes:
+            gnode = AinbGraphEditorNode(editor=self, node=n)
+            gnode.render()
+            links += gnode.all_links
 
-    async def render_links_and_layout(self, link_calls: List[DeferredNodeLinkCall]):
+        # All nodes+attributes exist, now we can link them
+        for link in links:
+            link.render_node_link()
+
+        await self.apply_layout()
+
+
+    async def apply_layout(self):
         await self.layout.finalize()
-
-        # Add links
-        node_i_links = defaultdict(set)
-        for link in link_calls:
-            # print(link, flush=True)
-            # breakpoint()
-            dpg.add_node_link(link.src_attr, link.dst_attr, parent=link.parent)
-            node_i_links[link.src_node_i].add(link.dst_node_i)
-
-        if self.layout.is_graphviz_enabled() and not self.layout.insist_stinky:
-            for node_i in self.layout.get_node_indexes_with_layout():
-                node_tag = f"{self.tag}/node{node_i}/Node"
-                pos = self.layout.get_node_coordinates(node_i)
-                # print(node_tag, pos)
-                dpg.set_item_pos(node_tag, pos)
-
-            return  # no stinky
-
-        #
-        # XXX STINKY OLD LAYOUT XXX
-        #
-
-        # For panning to commands on open
-        NamedCoordDict = Dict[str, Tuple[int, int]]
-        command_named_coords: NamedCoordDict = {}
-
-        # TODO at least centralize some of the layout numbers
-        LAYOUT_X_SPACING = 800
-        LAYOUT_Y_SPACING = 500
-        CORNER_PAD = 10  # Distance from top left corner for root
-
-        # Determine each node's depth = x coord
-        node_max_depth_map = defaultdict(int)  # commands start at 0
-        for command_i, command in enumerate(self.ainb.commands):
-            node_i = command.json["Left Node Index"]
-            if node_i == -1:
-                continue
-
-            # FIXME something in Sequence/Amiibo.module.ainb is going infinite, it was bound to happen
-            def walk_for_depth_map(node_i, walk_depth):
-                cur_max_depth = node_max_depth_map[node_i]
-                if walk_depth > cur_max_depth:
-                    node_max_depth_map[node_i] = walk_depth
-                for edge_i in node_i_links[node_i]:
-                    if node_i not in node_i_links[edge_i]:
-                        walk_for_depth_map(edge_i, walk_depth+1)
-                    else:
-                        # don't attempt to count depth inside cycles,
-                        # but inherit its depth if we've already seen it deeper than this walk.
-                        edge_max_depth = node_max_depth_map[edge_i]
-                        if edge_max_depth > node_max_depth_map[node_i]:
-                            node_max_depth_map[node_i] = edge_max_depth
-                        else:
-                            node_max_depth_map[edge_i] = node_max_depth_map[node_i]
-            walk_for_depth_map(node_i, 0)
-            command_named_coords[command.json["Name"]] = (0 * LAYOUT_X_SPACING, command_i * LAYOUT_Y_SPACING)
-
-        # Pan to entry point by subtracting the destination coords, putting them at effectively [0, 0]
-        # cuz i dunno how to scroll the graph editor region itself
-        entry_point_offset = [0, 0]
-        open_to_command = "Root"  # take as input?
-        for cmd_name, cmd_coord in command_named_coords.items():
-            entry_point_offset = cmd_coord  # We'll take anything meaningful, don't assume [0, 0] isn't void space
-            if cmd_name == open_to_command:
-                break  # Exact match
-        entry_point_offset = [entry_point_offset[0] - CORNER_PAD, entry_point_offset[1] - CORNER_PAD]
-
-        # Layout
-        node_y_at_depth = defaultdict(int)
-        for node_i, max_depth in node_max_depth_map.items():
+        for node_i in self.layout.get_node_indexes_with_layout():
             node_tag = f"{self.tag}/node{node_i}/Node"
-            x = LAYOUT_X_SPACING * max_depth - entry_point_offset[0]
-            y = LAYOUT_Y_SPACING * node_y_at_depth[max_depth] - entry_point_offset[1]
-            node_y_at_depth[max_depth] += 1
-            pos = [x, y]
+            pos = self.layout.get_node_coordinates(node_i)
             # print(node_tag, pos)
             dpg.set_item_pos(node_tag, pos)
 
@@ -565,23 +473,23 @@ class AinbGraphEditorNode:
     def tag(self) -> DpgTag:
         return f"{self.editor.tag}/node{self.node_i}"
 
-    def render(self) -> List[DeferredNodeLinkCall]:
-        output_attr_links: List[DeferredNodeLinkCall] = []
+    @property
+    def all_links(self) -> List[AinbGraphEditorLink]:
+        return [AinbGraphEditorLink.create_from_subclass_factory(self.editor, self, link) for link in self.node.all_links]
+
+    def render(self):
         label = f"{self.node_type} ({self.node_i})"
 
         with dpg.node(tag=f"{self.tag}/Node", label=label, parent=self.editor.tag):
             self.render_topmeta()
             for param in self.node.all_params:
                 AinbGraphEditorParam(self.editor, param, self.tag).render()
-            for link in self.node.all_links:
-                output_attr_links += AinbGraphEditorLink(self.editor, self, link).render()
 
-        # Accumulate graphviz operations
-        self.editor.layout.maybe_dot_node(self.node_i, f"{self.tag}/Node")
-        for link in output_attr_links:
-            self.editor.layout.maybe_dot_edge(link.src_node_i, link.dst_node_i)
-
-        return output_attr_links
+            self.editor.layout.maybe_dot_node(self.node_i, f"{self.tag}/Node")
+            for link in self.all_links:
+                # Things like Standard Links need their own "output" dpg.node_attribute,
+                # as they don't logically link from a param but the node itself.
+                link.maybe_render_node_attribute()
 
     def render_topmeta(self):
         with dpg.node_attribute(tag=f"{self.tag}/LinkTarget", attribute_type=dpg.mvNode_Attr_Input):
@@ -708,32 +616,44 @@ class AinbGraphEditorParam:
 
 
 class AinbGraphEditorLink:
+    @staticmethod
+    def create_from_subclass_factory(editor: AinbGraphEditor, node: AinbGraphEditorNode, link: MutableAinbLink) -> AinbGraphEditorLink:
+        ltype = link.link_type
+        ltype = link.path.segment_by_name("link_type")
+        if ltype == "Output/bool Input/float Input Link": # 0
+            cls = AinbGraphEditorLink_0_bidirectional_lookup
+        elif ltype == "Standard Link": # 2
+            cls = AinbGraphEditorLink_2_standard
+        elif ltype == "Resident Update Link": # 3
+            cls = AinbGraphEditorLink_3_resident_update
+        elif ltype == "String Input Link": # 4
+            cls = AinbGraphEditorLink_4_string_input
+        elif ltype == "int Input Link": # 5
+            cls = AinbGraphEditorLink_5_int_input
+        else:
+            breakpoint()
+            raise ValueError(f"Unsupported link type {ltype}")
+        return cls(editor, node, link)
+
     def __init__(self, editor: AinbGraphEditor, node: AinbGraphEditorNode, link: MutableAinbLink):
         self.editor = editor
         self.node = node
         self.link = link
 
-    def render(self) -> List[DeferredNodeLinkCall]:
-        # TODO subclass+factory these instead? same with underlying Mutable*?
-        ltype = self.link.link_type
-        if ltype == "Output/bool Input/float Input Link": # 0
-            return self.link_bidirectional_lookup()
-        elif ltype == "Standard Link": # 2
-            return self.link_standard()
-        elif ltype == "Resident Update Link": # 3
-            return self.link_resident_update()
-        elif ltype == "String Input Link": # 4
-            return self.link_string_input()
-        elif ltype == "int Input Link": # 5
-            return self.link_int_input()
-        else:
-            print(f"Unsupported link type {ltype}")
-            breakpoint()
-            return []
+    def maybe_render_node_attribute(self):
+        pass  # override me when applicable
 
-    def link_bidirectional_lookup(self) -> List[DeferredNodeLinkCall]:
-        # XXX idk if its a good name yet, just wanted something simpler for now
-        aj_link_type = "Output/bool Input/float Input Link"
+    def get_link_calls(self) -> List[DeferredNodeLinkCall]:
+        return []  # override me
+
+    def render_node_link(self):
+        for lc in self.get_link_calls():
+            self.editor.layout.maybe_dot_edge(lc.src_node_i, lc.dst_node_i)
+            dpg.add_node_link(lc.src_attr, lc.dst_attr, parent=lc.parent)
+
+
+class AinbGraphEditorLink_0_bidirectional_lookup(AinbGraphEditorLink):
+    def get_link_calls(self) -> List[DeferredNodeLinkCall]:
         output_attr_links = []
 
         remote_i = self.link.json["Node Index"]
@@ -779,7 +699,7 @@ class AinbGraphEditorLink:
 
                     elif local_param_node_index < 0:
                         # grabbing globals/exb???
-                        print(f"Unhandled {local_param_node_index} source node in Input Parameters - {aj_link_type}")
+                        print(f"Unhandled {local_param_node_index} source node in Input Parameters - {self.link.link_type}")
                         return output_attr_links  # TODO Return nothing for now
 
                     else:
@@ -853,17 +773,15 @@ class AinbGraphEditorLink:
         return output_attr_links
 
 
-    def link_standard(self) -> List[DeferredNodeLinkCall]:
-        aj_link_type = "Standard Link"
-        output_attr_links = []
+class AinbGraphEditorLink_2_standard(AinbGraphEditorLink):
+    def maybe_render_node_attribute(self):
+        _link_calls = self.get_link_calls()
+        if not _link_calls:
+            return
+        lc: DeferredNodeLinkCall = _link_calls[0]
 
-        # refs to entire nodes for stuff like simultaneous, selectors.
-        # make new node attributes to support links to children.
-        dst_i = self.link.json["Node Index"]
-        my_attr_tag = f"{self.node.tag}/stdlink{self.link.i_of_link_type}"
-        dst_attr_tag = f"{self.editor.tag}/node{dst_i}/LinkTarget"
-
-        with dpg.node_attribute(tag=my_attr_tag, attribute_type=dpg.mvNode_Attr_Output):
+        # make new src node attributes for links to children/selected/etc nodes
+        with dpg.node_attribute(tag=lc.src_attr, attribute_type=dpg.mvNode_Attr_Output):
             labels = []
             if cname := self.link.json.get("Connection Name"):
                 labels.append(cname)
@@ -871,8 +789,16 @@ class AinbGraphEditorLink:
                 labels.append(f"Condition: {cond}")
             if note := self.link.json.get("その他"):  # "Others"?
                 labels.append(note)  # Contains "Default"?
-            label = ", ".join(labels) or f"[{aj_link_type}]"
+            label = ", ".join(labels) or f"[{self.link.link_type}]"
             dpg.add_text(label)
+
+    def get_link_calls(self) -> List[DeferredNodeLinkCall]:
+        output_attr_links = []
+
+        # refs to entire nodes for stuff like simultaneous, selectors.
+        dst_i = self.link.json["Node Index"]
+        my_attr_tag = f"{self.node.tag}/stdlink{self.link.i_of_link_type}"
+        dst_attr_tag = f"{self.editor.tag}/node{dst_i}/LinkTarget"
 
         output_attr_links.append(DeferredNodeLinkCall(
             src_attr=my_attr_tag,
@@ -884,15 +810,25 @@ class AinbGraphEditorLink:
         return output_attr_links
 
 
-    def link_resident_update(self) -> List[DeferredNodeLinkCall]:
+class AinbGraphEditorLink_3_resident_update(AinbGraphEditorLink):
+    def maybe_render_node_attribute(self):
+        _link_calls = self.get_link_calls()
+        if not _link_calls:
+            return
+        lc: DeferredNodeLinkCall = _link_calls[0]
+
+        with dpg.node_attribute(tag=lc.src_attr, attribute_type=dpg.mvNode_Attr_Output):
+            flags = self.link.json["Update Info"]["Flags"]
+            label = f"[ResUpdate] ({flags})" if flags else "[ResUpdate]"
+            dpg.add_text(label)
+
+    def get_link_calls(self) -> List[DeferredNodeLinkCall]:
         output_attr_links = []
 
         # pointers to params owned by other nodes? idk
         # pulling in references to other nodes? idk
         dst_i = self.link.json["Node Index"]
         my_attr_tag = f"{self.node.tag}/reslink{self.link.i_of_link_type}"
-
-        # print(self.link.json)
 
         dst_attr_tag = f"{self.editor.tag}/node{dst_i}/LinkTarget" # TODO learn some things
         # if dst_param_name := self.link.json["Update Info"].get("String"):
@@ -906,11 +842,6 @@ class AinbGraphEditorLink:
         #     # The ResUpdate flags usually include "Is Valid Update" when this happens.
         #     dst_attr_tag = f"{self.editor.tag}/node{dst_i}/LinkTarget"
 
-        with dpg.node_attribute(tag=my_attr_tag, attribute_type=dpg.mvNode_Attr_Output):
-            flags = self.link.json["Update Info"]["Flags"]
-            label = f"[ResUpdate] ({flags})" if flags else "[ResUpdate]"
-            dpg.add_text(label)
-
         output_attr_links.append(DeferredNodeLinkCall(
             src_attr=my_attr_tag,
             dst_attr=dst_attr_tag,
@@ -921,7 +852,8 @@ class AinbGraphEditorLink:
         return output_attr_links
 
 
-    def link_string_input(self) -> List[DeferredNodeLinkCall]:
+class AinbGraphEditorLink_4_string_input(AinbGraphEditorLink):
+    def get_link_calls(self) -> List[DeferredNodeLinkCall]:
         output_attr_links = []
 
         # The link info exists on the destination `node`, so the source is "remote"
@@ -959,7 +891,8 @@ class AinbGraphEditorLink:
         return output_attr_links
 
 
-    def link_int_input(self) -> List[DeferredNodeLinkCall]:
+class AinbGraphEditorLink_5_int_input(AinbGraphEditorLink):
+    def get_link_calls(self) -> List[DeferredNodeLinkCall]:
         output_attr_links = []
 
         # The link info exists on the destination `node`, so the source is "remote"
