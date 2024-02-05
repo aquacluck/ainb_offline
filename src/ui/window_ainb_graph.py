@@ -65,6 +65,7 @@ class AinbGraphLayout:
     inflight_dot: graphviz.Digraph = None
     inflight_nodes: dict = None
     location: PackIndexEntry = None
+    global_translate: Tuple[int, int] = None
 
     @property
     def has_layout(self) -> bool:
@@ -79,6 +80,7 @@ class AinbGraphLayout:
     def __init__(self, location: PackIndexEntry, layout_data: dict = None):
         self.location = location
         self.layout_data = layout_data
+        self.global_translate = [0, 0]
         if not self.has_layout:
             # begin building new layout
             self.inflight_nodes ={}
@@ -143,10 +145,19 @@ class AinbGraphLayout:
             return []
         return list(self.layout_data.keys())
 
-    def get_node_coordinates(self, i: int, default=(0, 0)) -> Tuple[int, int]:
+    def get_node_coordinates(self, i: int) -> Tuple[int, int]:
+        default = (0, 0)
         if not self.has_layout:
             return default
-        return self.layout_data.get(i, default)
+        x, y = self.layout_data.get(i, default)
+        dx, dy = self.global_translate
+        return (x + dx, y + dy)
+
+    def global_translate_to_node(self, node_i: int):
+        x, y = self.layout_data.get(node_i)
+        x -= 32
+        y -= 100
+        self.global_translate = [-1 * x, -1 * y]
 
 
 class WindowAinbGraph:
@@ -428,9 +439,20 @@ class AinbGraphEditor:
 
     async def apply_layout(self):
         await self.layout.finalize()
+
+        # Pan to some node
+        if cmds := self.ainb.commands:
+            pan_node_i = cmds[0].json["Left Node Index"]
+            self.layout.global_translate_to_node(pan_node_i)
+        elif self.ainb.nodes:
+            self.layout.global_translate_to_node(0)
+
         for node_i in self.layout.get_node_indexes_with_layout():
-            node_tag = f"{self.tag}/node{node_i}/Node"
             pos = self.layout.get_node_coordinates(node_i)
+            if node_i == -420:
+                node_tag = f"{self.tag}/Globals/Node"
+            else:
+                node_tag = f"{self.tag}/node{node_i}/Node"
             # print(node_tag, pos)
             dpg.set_item_pos(node_tag, pos)
 
@@ -449,6 +471,7 @@ class AinbGraphEditorGlobalsNode:
             for param in self.editor.ainb.global_params:
                 AinbGraphEditorParam(self.editor, param, self.tag).render()
         dpg.bind_item_theme(f"{self.tag}/Node", globals_node_theme)
+        self.editor.layout.maybe_dot_node(-420, f"{self.tag}/Node")
 
 
 class AinbGraphEditorNode:

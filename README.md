@@ -24,6 +24,9 @@ python3 ainb_offline.py Root:AI/Assassin_Senior.action.interuptlargedamage.modul
 python3 ainb_offline.py Pack/Actor/Animal_Donkey_B.pack.zs:AI/NoMoveDonkey.root.ainb  # romfs-relative pack
 python3 ainb_offline.py romfs/Pack/Actor/Animal_Donkey_B.pack.zs:AI/NoMoveDonkey.root.ainb  # cwd-relative pack
 
+# cwd-relative paths must still point inside the app's "romfs", inspecting loose ainbs+packs from your filesystem is not supported.
+# Any loose files should instead be copied to your modfs output folder, which the app will prefer to load instead of vanilla romfs.
+
 # By default romfs RSDB is checked to determine version, unless version is specified:
 TITLE_VERSION=TOTK_100 python3 ainb_offline.py
 ```
